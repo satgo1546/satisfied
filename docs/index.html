@@ -3,11 +3,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="X-UA-Compatible" content="ie=edge">
 <style>
+* {
+	box-sizing: border-box;
+}
+
+body {
+	background-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="9" height="9"%3E%3Crect x="0" y="0" width="9" height="9" fill="%23ecf5ff" /%3E%3Cpath d="M 0 4 h 4 v -4 h 1 v 4 h 4 v 1 h -4 v 4 h -1 v -4 h -4 Z" fill="%23cee7ff" /%3E%3C/svg%3E');
+}
+
 figure {
-	border: thin silver solid;
+	border: thin solid silver;
 	display: inline-flex;
 	flex-flow: column;
 	padding: 5px;
+	background-color: white;
 }
 
 figure > img {
@@ -21,18 +30,44 @@ figcaption {
 	padding: 3px;
 	text-align: start;
 }
+
+details {
+	border: thin solid silver;
+	padding: 4px 4px 0;
+	background-color: rgba(255, 255, 255, 0.5);
+}
+
+summary {
+	font-weight: bold;
+	margin: -4px -4px 0;
+	padding: 4px;
+	cursor: pointer;
+	background-color: white;
+}
+
+details[open] {
+	padding: 4px;
+}
+
+details[open] summary {
+	background-color: gainsboro;
+	margin-bottom: 4px;
+}
 </style>
-<center>
-	<figure>
-		<img src="2020-07-31.png">
-		<figcaption>不能运行很高兴的屑</figcaption>
-	</figure>
-	<figure>
-		<img src="2020-08-02.png">
-		<figcaption>可以运行也很高兴的屑</figcaption>
-	</figure>
-	<figure>
-		<img src="2020-08-27.png">
-		<figcaption>支持生草</figcaption>
-	</figure>
-</center>
+<details>
+	<summary>截图</summary>
+	<center>
+		<figure>
+			<img src="2020-07-31.png">
+			<figcaption>不能运行很高兴的屑</figcaption>
+		</figure>
+		<figure>
+			<img src="2020-08-02.png">
+			<figcaption>可以运行也很高兴的屑</figcaption>
+		</figure>
+		<figure>
+			<img src="2020-08-27.png">
+			<figcaption>支持生草</figcaption>
+		</figure>
+	</center>
+</details>

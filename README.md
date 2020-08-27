@@ -6,6 +6,8 @@
 <dl>
 	<dt>satisfied</dt>
 	<dd>Windows x86，在PATH中的NASM和MinGW-w64。<a href="https://winworldpc.com/product/windows-nt-3x/31">目标是27年间的星辰大海</a>。顺带一提，这大概是第1546个带有lightweight话题的GitHub存储库。</dd>
+	<dt>TRPG</dt>
+	<dd>桌上复古编程游戏（Tabletop Retro-Programming Game）的简称，显然并没有人接受这一简称。跟多数桌上游戏不同，TRPG本质上并不是一种对战游戏，其根本目的是构造合适的指令序列，并在达成目的的同时优化代码的一个或多个方面。当代绝大多数TRPG规则都晦涩繁重，如主流的AMD64规则书分为五卷，总计超过三千页。</dd>
 	<dt>something.asm</dt>
 	<dd>几乎全手写的垃圾汇编，抄来的代码都作了标注。优化的目标既不是速度又不是大小，而是指令和宏的多样性。不过如果当真做到了极致的话很快就会受不了的吧。</dd>
 	<dt>slzprog.c</dt>
@@ -18,4 +20,4 @@
 
 > It works! The screenshots below show the executable running on Windows NT 3.51 and Windows 10, versions that were released more than twenty years apart. For some reason, I find this extremely satisfying. (Perhaps in this sense, our executable is a lot more universal than programs using the newfangled Universal Windows Platform model?)
 >
-> — [Othello for Desktop, Mobile and Web: an AI and GUI Exercise](https://www.hanshq.net/othello.html)
+> — [*Othello for Desktop, Mobile and Web: an AI and GUI Exercise*](https://www.hanshq.net/othello.html)
