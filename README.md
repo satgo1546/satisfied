@@ -17,4 +17,5 @@
 </dl>
 
 > It works! The screenshots below show the executable running on Windows NT 3.51 and Windows 10, versions that were released more than twenty years apart. For some reason, I find this extremely satisfying. (Perhaps in this sense, our executable is a lot more universal than programs using the newfangled Universal Windows Platform model?)
+>
 > — [Othello for Desktop, Mobile and Web: an AI and GUI Exercise](https://www.hanshq.net/othello.html)
