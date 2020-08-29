@@ -949,151 +949,147 @@ init_genrand:
 	mov dword [mti], 624
 	ret 4
 
+; void init_by_array(uint32_t init_key[], size_t key_length)
 init_by_array:
-	push ebp
 	push ebx
-	push edi
+	push ebp
 	push esi
-	sub esp, 12
-	mov esi, dword [esp + 36]
-	mov dword [esp], 19650218
+	push edi
+	push 19650218
 	call init_genrand
-	sub esp, 4
-	cmp esi, 623
-	mov ecx, 624
-	mov eax, 1
-	cmovg ecx, esi
-	xor edx, edx
+	; ESI → init_key[0]
+	; EBP = key_length
+	; EDI → mt[i]
+	; EBX = j
+	; ECX = k
+	mov esi, [esp + 20]
+	mov ebp, [esp + 24]
+	; i = 1
+	mov edi, mt + 4
+	; j = 0
 	xor ebx, ebx
-	jmp .LBB1_1
-.LBB1_2: ; in Loop: Header=BB1_1 Depth=1
-	inc eax
-	cmp ebx, esi
-	cmovge ebx, edx
-	dec ecx
-	je .LBB1_5
-.LBB1_1: ; =>This Inner Loop Header: Depth=1
-	mov edi, dword [4*eax + mt-4]
-	mov ebp, edi
-	shr ebp, 30
-	xor ebp, edi
-	imul edi, ebp, 1664525
-	mov ebp, dword [esp + 32]
-	xor edi, dword [4*eax + mt]
-	mov ebp, dword [ebp + 4*ebx]
-	add ebp, ebx
+
+	; k = key_length
+	mov ecx, ebp
+	; if (N > key_length) k = N
+	mov eax, 624
+	cmp eax, ebp
+	cmova ecx, eax
+
+.loop1:
+	mov eax, [edi - 4]
+	mov edx, eax
+	shr eax, 30
+	xor eax, edx
+	imul eax, 1664525
+	xor eax, [edi]
+	add eax, ebx
+	add eax, [esi + ebx * 4]
+	xor edx, edx
+	stosd
 	inc ebx
-	add ebp, edi
-	cmp eax, 623
-	mov dword [4*eax + mt], ebp
-	jl .LBB1_2
-	mov eax, dword [mt+2492]
-	mov dword [mt], eax
-	mov eax, 1
-	cmp ebx, esi
-	cmovge ebx, edx
-	dec ecx
-	jne .LBB1_1
-.LBB1_5:
-	mov ecx, -623
-	jmp .LBB1_6
-.LBB1_7: ; in Loop: Header=BB1_6 Depth=1
-	inc eax
-	inc ecx
-	je .LBB1_10
-.LBB1_6: ; =>This Inner Loop Header: Depth=1
-	mov edx, dword [4*eax + mt-4]
-	mov esi, edx
-	shr esi, 30
-	xor esi, edx
-	imul edx, esi, 1566083941
-	xor edx, dword [4*eax + mt]
-	sub edx, eax
-	cmp eax, 623
-	mov dword [4*eax + mt], edx
-	jl .LBB1_7
-	mov eax, dword [mt+2492]
-	mov dword [mt], eax
-	mov eax, 1
-	inc ecx
-	jne .LBB1_6
-.LBB1_10:
-	mov dword [mt], 0x80000000
-	add esp, 12
-	pop esi
+	cmp ebx, ebp
+	cmovae ebx, edx
+	cmp edi, mt + 624 * 4
+	jb .loop1_epilog
+	mov edi, mt
+	stosd
+.loop1_epilog:
+	loop .loop1
+
+	mov ecx, 624 - 1
+	; EBX = i
+	mov ebx, edi
+	sub ebx, mt
+	shr ebx, 2
+
+.loop2:
+	mov eax, [edi - 4]
+	mov edx, eax
+	shr eax, 30
+	xor eax, edx
+	imul eax, 1566083941
+	xor eax, [edi]
+	sub eax, ebx
+	stosd
+	inc ebx
+	cmp edi, mt + 624 * 4
+	jb .loop2_epilog
+	mov edi, mt
+	xor ebx, ebx
+	stosd
+	inc ebx
+.loop2_epilog:
+	loop .loop2
+
+	; mt[0] ← 0x80000000
+	xor eax, eax
+	stc
+	rcr eax, 1
+	mov [mt], eax
+
 	pop edi
-	pop ebx
+	pop esi
 	pop ebp
+	pop ebx
 	ret 8
 
 genrand_int32:
-	push esi
-	sub esp, 8
-	mov ecx, dword [mti]
-	cmp ecx, 623
-	jle .LBB2_1
-	mov ecx, dword [mt]
-	mov eax, -908
+	mov ecx, [mti]
+	cmp ecx, 624
+	jb .cached
+
+	push edi
+	mov edi, mt
+
+	mov ecx, 624 - 397
 .loop1:
-	mov edx, dword [eax + mt+912]
-	and ecx, 0x80000000
-	mov esi, edx
-	and esi, 0x7ffffffe
-	or esi, ecx
-	mov ecx, edx
-	and edx, 1
-	neg edx
-	and edx, 0x9908b0df
-	shr esi, 1
-	xor edx, dword [eax + mt+2496]
-	xor edx, esi
-	mov dword [eax + mt+908], edx
-	add eax, 4
-	jne .loop1
+	mov eax, [edi]
+	mov edx, [edi + 4]
+	add edx, edx
+	add eax, eax
+	rcr edx, 2 ; !!
+	sbb eax, eax ; !
+	and eax, 0x9908b0df
+	xor eax, edx
+	xor eax, [edi + 397 * 4]
+	stosd
+	loop .loop1
 
-	mov ecx, dword [mt+908]
-	mov eax, -1584
+	mov ecx, 397 - 1
 .loop2:
-	mov edx, dword [eax + mt+2496]
-	and ecx, 0x80000000
-	mov esi, edx
-	and esi, 0x7ffffffe
-	or esi, ecx
-	mov ecx, edx
-	and edx, 1
-	neg edx
-	and edx, 0x9908b0df
-	shr esi, 1
-	xor edx, dword [eax + mt+1584]
-	xor edx, esi
-	mov dword [eax + mt+2492], edx
-	add eax, 4
-	jne .loop2
+	mov eax, [edi]
+	mov edx, [edi + 4]
+	add edx, edx
+	add eax, eax
+	rcr edx, 2
+	sbb eax, eax
+	and eax, 0x9908b0df
+	xor eax, edx
+	xor eax, [edi + (397 - 624) * 4]
+	stosd
+	loop .loop2
 
-	mov eax, dword [mt]
-	mov ecx, 0x80000000
-	mov dword [mti], 0
-	and ecx, dword [mt+2492]
-	mov edx, eax
-	and edx, 0x7ffffffe
-	or edx, ecx
-	mov ecx, eax
-	and ecx, 1
-	neg ecx
-	and ecx, 0x9908b0df
-	shr edx, 1
-	xor ecx, dword [mt+1584]
-	xor ecx, edx
-	mov dword [mt+2492], ecx
-	mov ecx, 1
-	jmp .ret
-.LBB2_1:
-	mov eax, dword [4*ecx + mt]
+	mov eax, [edi]
+	mov edx, [mt]
+	add edx, edx
+	add eax, eax
+	rcr edx, 2
+	sbb eax, eax
+	and eax, 0x9908b0df
+	xor eax, edx
+	xor eax, [mt + (397 - 1) * 4]
+	stosd
+
+	; ECX = 0
+
+	pop edi
+.cached:
+	mov eax, [mt + ecx * 4]
 	inc ecx
-.ret:
-	mov dword [mti], ecx
+.temper:
+	mov [mti], ecx
 
-	; Tempering
 	mov edx, eax
 	shr edx, 11
 	xor eax, edx
@@ -1111,9 +1107,7 @@ genrand_int32:
 	mov edx, eax
 	shr edx, 18
 	xor eax, edx
-	add esp, 8
 
-	pop esi
 	ret
 
 reverse_bits:
