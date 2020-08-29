@@ -5,7 +5,7 @@
 
 <dl>
 	<dt>satisfied</dt>
-	<dd>Windows x86，在PATH中的NASM和MinGW-w64。<a href="https://winworldpc.com/product/windows-nt-3x/31">目标是27年间的星辰大海</a>。顺带一提，这大概是第1546个带有lightweight话题的GitHub存储库。</dd>
+	<dd>Windows，IA-32，在PATH中的NASM和MinGW-w64。<a href="https://winworldpc.com/product/windows-nt-3x/31">目标是27年间的窗明几净</a>。顺带一提，这大概是第1546个带有lightweight话题的GitHub存储库。</dd>
 	<dt>TRPG</dt>
 	<dd>桌上复古编程游戏（Tabletop Retro-Programming Game）的简称，显然并没有人接受这一简称。跟多数桌上游戏不同，TRPG本质上并不是一种对战游戏，其根本目的是构造合适的指令序列，并在达成目的的同时优化代码的一个或多个方面。当代绝大多数TRPG规则都晦涩繁重，如主流的AMD64规则书分为五卷，总计超过三千页。</dd>
 	<dt>something.asm</dt>
