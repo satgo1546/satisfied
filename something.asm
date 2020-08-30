@@ -466,6 +466,7 @@ parse_commandline:
 	push DEBUGBASE64STR
 	push buffer
 	call base64_atob
+	mov byte [buffer + eax], 0
 	push buffer
 	call [OutputDebugStringA]
 
@@ -1365,6 +1366,15 @@ base64_atob:
 	mov eax, edi
 	sub eax, [esp + 12]
 
+	; Trailing equal signs are decoded as garbage above; fix them here.
+	lea ecx, [eax - 1]
+	cmp byte [esi - 3], '='
+	cmove eax, ecx
+
+	lea ecx, [eax - 1]
+	cmp byte [esi - 2], '='
+	cmove eax, ecx
+
 	pop edi
 	pop esi
 	ret 8
@@ -1430,4 +1440,4 @@ DEBUGCMDLINE:
 DEBUGUTF8STR:
 	db `\1\x12\u0123\u1234\u5678\U00012345\U00102345\0`
 DEBUGBASE64STR:
-	db "SGVsbG8sIHdvcmxkITU1++++////", 0
+	db "SGVsbG8sIHdvcmxkITU1MTIzNA==", 0
