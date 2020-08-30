@@ -463,6 +463,12 @@ parse_commandline:
 
 	jmp main
 
+	push DEBUGBASE64STR
+	push buffer
+	call base64_atob
+	push buffer
+	call [OutputDebugStringA]
+
 	push 0
 	push 0
 	mov eax, [argv]
@@ -1258,6 +1264,103 @@ invsqrt:
 .float32:
 	dw 1.5
 
+; size_t base64_atob(uint8_t *dest, const char *src)
+; src is null-terminated. Returns bytes written to dest.
+; Does not check for errors.
+base64_atob:
+	push esi
+	push edi
+	; AL = byte
+	; CL = number of bits to be emitted
+	; EDX = bit buffer
+	; ESI → src
+	; EDI → dest
+	xor ecx, ecx
+	mov edx, ecx
+	mov esi, [esp + 16]
+	mov edi, [esp + 12]
+.loop:
+	lodsb
+	test al, al
+	jz .ret
+
+	; A–Z = 010xxxxx ∈ [0x41, 0x5a]
+	; a–z = 011xxxxx ∈ [0x61, 0x7a]
+	; 0–9 = 0011xxxx ∈ [0x30, 0x39]
+	; + / = 00101x11 ∈ {0x2b, 0x2f}
+
+	; Letters come first in the Base64 alphabet.
+	mov ch, al
+	shr ch, 1
+	and ch, al
+	test ch, 0x20
+	setz ch
+	dec ch
+	and ch, 26
+
+	; Digits will be converted into [0x10, 0x19] below. Add 36 to translate them into [52, 61].
+	mov ah, al
+	sub ah, 0x40
+	shr ah, 2
+	and ah, al
+	and ah, 0x10
+	shr ah, 2
+	or ch, ah
+	shl ah, 3
+	or ch, ah
+
+	; '+' and '/' differ only in bit 2.
+	xor al, 0x20
+	test al, 0xf0
+	setz ah
+	shl ah, 7
+	sar ah, 5
+	and ah, al
+	shl ah, 4
+	sar ah, 4
+	shr ah, 2
+	or ch, ah
+
+	; Alphabet counting starts at 1, so decrement CH if AL ≥ 'A'.
+	cmp al, 'A'
+	cmc ; JNC = JAE
+	sbb ch, 0
+
+	; 'A', 'a' → 1; 'Z', 'z' → 26
+	; '0' → 0x10; '9' → 0x19
+	; '+', '/' → 0
+	test al, 0xf0
+	setz ah
+	dec ah
+	and al, ah
+	and al, 0x1f
+
+	add al, ch
+
+	shl edx, 6
+	or dl, al
+	add cl, 6
+	test cl, 0xf8
+	jz .loop
+
+	; CL ≥ 8
+	sub cl, 8
+	mov eax, edx
+	shr eax, cl
+	stosb
+	jmp .loop
+.ret:
+	; EAX = bytes written
+	mov eax, edi
+	sub eax, [esp + 12]
+
+	pop edi
+	pop esi
+	ret 8
+
+base64_table:
+	db "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
 str1:
 	db 0x4f, 'T'
 	db 0x6f, 'h'
@@ -1302,6 +1405,8 @@ str1:
 str2:
 	db "This error cannot be raised in DOS mode.", 13, 10
 str2_end:
+str3:
+	db "data:application/vnd.microsoft.portable-executable;base64,", 0
 
 	align 2
 window_class_name:
@@ -1313,3 +1418,5 @@ DEBUGCMDLINE:
 	dw __utf16__("slzprog-output.exe 1 2 3 4444"), 0
 DEBUGUTF8STR:
 	db `\1\x12\u0123\u1234\u5678\U00012345\U00102345\0`
+DEBUGBASE64STR:
+	db "SGVsbG8sIHdvcmxkITU1++++////", 0
