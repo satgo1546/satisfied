@@ -1271,9 +1271,9 @@ invsqrt:
 	add esp, 8
 	ret 4
 .float12:
-	dw 0.5
+	dd 0.5
 .float32:
-	dw 1.5
+	dd 1.5
 
 ; size_t base64_atob(uint8_t *dest, const char *src)
 ; src is null-terminated. Returns bytes written to dest.
