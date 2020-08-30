@@ -940,9 +940,11 @@ strchr0:
 init_genrand:
 	mov eax, [esp + 4]
 	mov [mt], eax
+	; ECX = mti
 	xor ecx, ecx
 	inc ecx
 .loop:
+	; mt[mti] = (1812433253UL * (mt[mti-1] ^ (mt[mti-1] >> 30)) + mti)
 	mov edx, eax
 	shr edx, 30
 	xor edx, eax
@@ -952,7 +954,7 @@ init_genrand:
 	inc ecx
 	cmp ecx, 624
 	jne .loop
-	mov dword [mti], 624
+	mov [mti], ecx
 	ret 4
 
 ; void init_by_array(uint32_t init_key[], size_t key_length)
@@ -1040,6 +1042,8 @@ init_by_array:
 	pop ebx
 	ret 8
 
+; uint32_t genrand_int32(void)
+; Call init_genrand() or init_by_array() first.
 genrand_int32:
 	mov ecx, [mti]
 	cmp ecx, 624
@@ -1048,8 +1052,11 @@ genrand_int32:
 	push edi
 	mov edi, mt
 
+	; for (kk = 0; kk < N - M; kk++)
 	mov ecx, 624 - 397
 .loop1:
+	; y = (mt[kk]&UPPER_MASK)|(mt[kk+1]&LOWER_MASK),
+	; mt[kk] = mt[kk+M] ^ (y >> 1) ^ ((y & 0x1UL) * 0x9908b0dfUL)
 	mov eax, [edi]
 	mov edx, [edi + 4]
 	add edx, edx
@@ -1062,6 +1069,7 @@ genrand_int32:
 	stosd
 	loop .loop1
 
+	; for (kk = N - M; kk < N - 1; kk++)
 	mov ecx, 397 - 1
 .loop2:
 	mov eax, [edi]
@@ -1072,19 +1080,19 @@ genrand_int32:
 	sbb eax, eax
 	and eax, 0x9908b0df
 	xor eax, edx
-	xor eax, [edi + (397 - 624) * 4]
+	xor eax, [edi + (397 - 624) * 4] ; mt[kk+(M-N)]
 	stosd
 	loop .loop2
 
-	mov eax, [edi]
-	mov edx, [mt]
+	mov eax, [edi] ; mt[N-1]
+	mov edx, [mt] ; mt[0]
 	add edx, edx
 	add eax, eax
 	rcr edx, 2
 	sbb eax, eax
 	and eax, 0x9908b0df
 	xor eax, edx
-	xor eax, [mt + (397 - 1) * 4]
+	xor eax, [mt + (397 - 1) * 4] ; mt[M-1]
 	stosd
 
 	; ECX = 0
@@ -1093,23 +1101,26 @@ genrand_int32:
 .cached:
 	mov eax, [mt + ecx * 4]
 	inc ecx
-.temper:
 	mov [mti], ecx
 
+	; y ^= (y >> 11)
 	mov edx, eax
 	shr edx, 11
 	xor eax, edx
 
+	; y ^= (y << 7) & 0x9d2c5680UL
 	mov edx, eax
 	shl edx, 7
 	and edx, 0x9d2c5680
 	xor eax, edx
 
+	; y ^= (y << 15) & 0xefc60000UL
 	mov edx, eax
 	shl edx, 15
 	and edx, 0xefc60000
 	xor eax, edx
 
+	; y ^= (y >> 18)
 	mov edx, eax
 	shr edx, 18
 	xor eax, edx
@@ -1168,7 +1179,7 @@ utf8_tr:
 utf8_decode:
 	; uint32_t type = utf8_d[byte];
 	shl eax, 8
-	shl edx, 8
+	shl edx, 8 ; EDX ≤ 0x10ffff
 	test ah, ah
 	mov ebx, utf8_d
 	lodsb
