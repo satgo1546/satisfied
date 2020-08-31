@@ -470,6 +470,13 @@ parse_commandline:
 	push buffer
 	call [OutputDebugStringA]
 
+	push 64
+	push base64_table
+	push buffer
+	call base64_btoa
+	push buffer
+	call [OutputDebugStringA]
+
 	push 0
 	push 0
 	mov eax, [argv]
@@ -1378,6 +1385,116 @@ base64_atob:
 	pop edi
 	pop esi
 	ret 8
+
+; void base64_btoa(char *dest, uint8_t *src, size_t len)
+base64_btoa:
+	push ebx
+	push esi
+	push edi
+	; EBX → base64_table[0]
+	; ESI → src
+	; EDI → dest
+	mov ebx, base64_table
+	mov esi, [esp + 20]
+	mov edi, [esp + 16]
+	; ECX ← len / 3
+	; 0xaaaaaaab/2 ∽ ⅓ (mod 2³²)
+	mov eax, [esp + 24]
+	mov edx, 0xaaaaaaab
+	mul edx
+	shr edx, 1
+	mov ecx, edx
+	; len ← len mod 3
+	imul eax, edx, 3
+	sub [esp + 24], eax
+.loop:
+	xor eax, eax
+	lodsb
+	mov ah, al
+	lodsb
+	shl eax, 8
+	lodsb
+
+	mov edx, eax
+	shr eax, 18
+	xlatb
+	stosb
+
+	mov eax, edx
+	shr eax, 12
+	and eax, 0x3f
+	xlatb
+	stosb
+
+	mov eax, edx
+	shr eax, 6
+	and eax, 0x3f
+	xlatb
+	stosb
+
+	mov eax, edx
+	and eax, 0x3f
+	xlatb
+	stosb
+
+	loop .loop
+
+	; len ∈ {0, 1, 2}
+	mov eax, [esp + 24]
+	dec eax
+	js .ret
+	jnz .2_bytes_remaining
+
+.1_byte_remaining:
+	; EAX = 0
+	lodsb
+	mov ah, al
+	shr al, 2
+	xlatb
+	stosb
+
+	shr eax, 4
+	and eax, 0x30
+	xlatb
+	stosb
+	mov al, '='
+	stosb
+	stosb
+	jmp .ret
+
+.2_bytes_remaining:
+	; EAX = 1
+	lodsb
+	shl eax, 8
+	lodsb
+	mov edx, eax
+	shr eax, 10
+	xlatb
+	stosb
+
+	mov eax, edx
+	shr eax, 4
+	and eax, 0x3f
+	xlatb
+	stosb
+
+	mov eax, edx
+	shl eax, 2
+	and eax, 0x3f
+	xlatb
+	stosb
+
+	mov byte [edi], '='
+	inc edi
+.ret:
+	mov byte [edi], 0
+	lea eax, [edi + 1]
+	sub eax, [esp + 16]
+
+	pop edi
+	pop esi
+	pop ebx
+	ret 12
 
 base64_table:
 	db "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
