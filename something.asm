@@ -30,6 +30,8 @@ HeapAlloc	equ 0x00401024
 GetProcessHeap	equ 0x00401028
 HeapFree	equ 0x0040102c
 
+STD_INPUT_HANDLE equ -10
+STD_OUTPUT_HANDLE equ -11
 MAX_PATH equ 256
 
 %macro load_library 2
@@ -71,7 +73,7 @@ MAX_PATH equ 256
 	push esi
 	call strchr0
 	sub eax, esi
-	mov edi, [hStdout]
+	mov edi, [hStdOut]
 	push 0
 	push esp
 	push eax
@@ -123,9 +125,9 @@ original_esp:
 	resd 1
 original_text_attribute:
 	resd 1
-hStdin:
+hStdIn:
 	resd 1
-hStdout:
+hStdOut:
 	resd 1
 argc:
 	resd 1
@@ -144,13 +146,13 @@ section .text
 org 0x00403000
 	mov [original_esp], esp
 
-	push -10 ; STD_INPUT_HANDLE
+	push STD_INPUT_HANDLE
 	call [GetStdHandle]
-	mov [hStdin], eax
+	mov [hStdIn], eax
 
-	push -11 ; STD_OUTPUT_HANDLE
+	push STD_OUTPUT_HANDLE
 	call [GetStdHandle]
-	mov [hStdout], eax
+	mov [hStdOut], eax
 
 	load_library [hKernel32], "kernel32.dll"
 	load_library [hUser32], "user32.dll"
@@ -160,13 +162,23 @@ org 0x00403000
 
 	load_function_start [hKernel32]
 	load_function GetVersion
+	load_function AllocConsole
+	load_function FreeConsole
 	load_function SetConsoleTextAttribute
+	load_function SetConsoleCursorPosition
 	load_function GetConsoleScreenBufferInfo
+	load_function SetConsoleTitleW
+	load_function GetConsoleMode
+	load_function SetConsoleMode
+	load_function SetConsoleCursorInfo
+	load_function ReadConsoleInputW
 	load_function SetThreadLocale
 	load_function GetModuleHandleW
 	load_function GetModuleFileNameW
 	load_function GetStartupInfoW
 	load_function GetCommandLineW
+	load_function WaitForSingleObject
+	load_function WriteConsoleOutputW
 	db 0
 
 	load_function_start [hKernel32], 0
@@ -356,6 +368,7 @@ count_commandline:
 	add ecx, ecx
 	lea eax, [(edx + 1) * 4 + ecx]
 	mov ebx, edx ; save EDX = number of arguments
+	mov [argc], edx
 	heap_alloc eax
 
 parse_commandline:
@@ -372,7 +385,7 @@ parse_commandline:
 	mov [edx], edi
 	add edx, 4
 	xor eax, eax
-	mov ebx, eax
+	xor ebx, ebx
 	cmp word [esi], '"'
 	je .quoted_program_name
 .unquoted_program_name:
@@ -512,7 +525,7 @@ xxd:
 	push eax
 	push 1024
 	push buffer
-	push dword [hStdin]
+	push dword [hStdIn]
 	call [ReadFile]
 	pop eax
 	test eax, eax
@@ -539,7 +552,7 @@ xxd:
 	push esp
 	push 3
 	push eax
-	push dword [hStdout]
+	push dword [hStdOut]
 	call [WriteFile]
 	pop eax
 	inc ebx
@@ -549,14 +562,14 @@ xxd:
 
 colorful_stub:
 	push buffer
-	push dword [hStdout]
+	push dword [hStdOut]
 	call [GetConsoleScreenBufferInfo]
 	movzx eax, word [buffer + 8]
 	mov [original_text_attribute], eax
 
 	; Write a colorful stub to stdout.
 	mov ebx, str1
-	mov edi, [hStdout]
+	mov edi, [hStdOut]
 .loop:
 	movzx eax, byte [ebx]
 	push eax
@@ -795,12 +808,12 @@ exit_win32_error:
 	; In case ESP is misaligned, align it.
 	and esp, 0xfffffffc
 	call [GetLastError]
-	; In case [hStdout] is mangled, retrieve hStdout again.
+	; In case [hStdOut] is mangled, retrieve hStdOut again.
 	mov edi, eax
 	push -11
 	call [GetStdHandle]
 	xchg edi, eax
-	mov [hStdout], edi
+	mov [hStdOut], edi
 	push 0x0a0d3333
 	push 0x33333333
 	push 0x33327830
@@ -831,7 +844,7 @@ exit_failure:
 	push esp
 	push str2_end - str2
 	push str2
-	push dword [hStdout]
+	push dword [hStdOut]
 	call [WriteFile]
 exit:
 	mov ebx, [FreeLibrary]
@@ -1111,6 +1124,7 @@ genrand_int32:
 	inc ecx
 	mov [mti], ecx
 
+	; Temper the result.
 	; y ^= (y >> 11)
 	mov edx, eax
 	shr edx, 11
@@ -1295,7 +1309,7 @@ base64_atob:
 	; ESI → src
 	; EDI → dest
 	xor ecx, ecx
-	mov edx, ecx
+	xor edx, edx
 	mov esi, [esp + 16]
 	mov edi, [esp + 12]
 .loop:
@@ -1551,6 +1565,8 @@ window_class_name:
 	dw __utf16__("This window class cannot be registered in DOS mode."), 0
 window_title:
 	dw __utf16__("This window cannot be created in DOS mode."), 0
+console_title:
+	dw __utf16__("This console cannot be allocated in DOS mode."), 0
 	align 32
 DEBUGCMDLINE:
 	dw __utf16__("slzprog-output.exe 1 2 3 4444"), 0
