@@ -516,6 +516,7 @@ parse_commandline:
 main:
 	cmp dword [argc], 2
 	jb colorful_stub
+	je conpaint
 
 xxd:
 	; Loop reading characters and converting them to hexadecimal.
@@ -559,6 +560,120 @@ xxd:
 	cmp ebx, esi
 	jb .loop
 	jmp xxd
+
+conpaint:
+	push buffer
+	push dword [hStdOut]
+	call [GetConsoleScreenBufferInfo]
+	; If the cursor is at (0, 0), the application is likely to have been launched with its own console.
+	cmp dword [buffer + 4], 0
+	je .after_alloc_console
+	; A fresh console is wanted.
+	call [FreeConsole]
+	call [AllocConsole]
+
+	push STD_INPUT_HANDLE
+	call [GetStdHandle]
+	mov [hStdIn], eax
+
+	push STD_OUTPUT_HANDLE
+	call [GetStdHandle]
+	mov [hStdOut], eax
+.after_alloc_console:
+	mov esi, [hStdIn]
+	mov edi, [hStdOut]
+
+	push console_title
+	call [SetConsoleTitleW]
+
+	; This sets up the console to generate keyboard, mouse and window events, and also turns insert mode off.
+	push 0x0098 ; ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS
+	push esi
+	call [SetConsoleMode]
+	push 0x0000 ; ~ENABLE_PROCESSED_OUTPUT & ~ENABLE_WRAP_AT_EOL_OUTPUT
+	push edi
+	call [SetConsoleMode]
+
+	push 1 ; visible
+	push 5 ; 5%
+	push esp
+	push edi
+	call [SetConsoleCursorInfo]
+	add esp, 8
+
+event_loop:
+	push -1 ; INFINITE
+	push esi
+	call [WaitForSingleObject]
+
+	sub esp, 20
+	mov eax, esp
+	push 0
+	push esp
+	push 1
+	push eax
+	push esi
+	call [ReadConsoleInputW]
+	pop eax
+
+	test eax, eax
+	jz event_loop
+
+	; ESP → INPUT_RECORD
+	movzx eax, word [esp]
+	cmp eax, 0x0001 ; KEY_EVENT
+	je .key
+	cmp eax, 0x0002 ; MOUSE_EVENT
+	je .mouse
+	cmp eax, 0x0004 ; WINDOW_BUFFER_SIZE_EVENT
+	je .window
+	; Other types of events ought to be ignored.
+	jmp .epilog
+
+.key:
+	push str1
+	call [OutputDebugStringA]
+	mov eax, [esp + 4]
+	test eax, eax
+	setnz cl
+
+	movzx eax, word [esp + 10]
+	cmp eax, 'X'
+	sete ch
+	and cl, ch
+
+	mov eax, [esp + 16]
+	test eax, 0x0003
+	setnz ch
+	and cl, ch
+
+	jnz exit
+	jmp .epilog
+.mouse:
+	push dword [esp + 4]
+	push edi
+	call [SetConsoleCursorPosition]
+
+	mov edx, [esp + 4]
+	mov eax, 0x40 | ((0x002a) << 16)
+	or eax, [esp + 8]
+	mov [buffer], eax
+	push edx
+	push edx
+	push esp
+	push 0x00000000
+	push 0x00010001
+	push buffer
+	push edi
+	call [WriteConsoleOutputW]
+	add esp, 8
+
+	jmp .epilog
+.window:
+	jmp .epilog
+.epilog:
+	add esp, 20
+	jmp event_loop
 
 colorful_stub:
 	push buffer
