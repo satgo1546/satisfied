@@ -3,6 +3,8 @@
 
 > 我就烂死！爽啦！
 
+~~挖坑不填中~~
+
 <dl>
 	<dt>satisfied</dt>
 	<dd>Windows，IA-32，在PATH中的NASM和MinGW-w64。<a href="https://winworldpc.com/product/windows-nt-3x/31">目标是27年间的窗明几净</a>。顺带一提，这大概是第1546个带有lightweight话题的GitHub存储库。</dd>
