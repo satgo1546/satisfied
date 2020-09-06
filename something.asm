@@ -137,6 +137,17 @@ mt:
 	resd 624
 mti:
 	resd 1
+conpaint_buffer:
+	resd 1
+conpaint_buffer_width:
+	resd 1
+conpaint_buffer_height:
+	resd 1
+conpaint_tool:
+	resb 1
+conpaint_ambiwidth:
+	resb 1
+	resb 2
 buffer:
 	resb 1024
 
@@ -699,13 +710,87 @@ event_loop:
 	push edi
 	call [WriteConsoleOutputW]
 	add esp, 8
+	jmp .epilog
+.mouse_wheel:
+	sub esp, 24 ; sizeof(CONSOLE_SCREEN_BUFFER_INFO) = 22
+	push esp
+	push edi
+	call [GetConsoleScreenBufferInfo]
+	movzx eax, word [esp + 12]
+	mov ecx, [esp + 24 + 8]
+	sar ecx, 16
+	sar ecx, 6 ; divide by 64
+	cmp eax, ecx
+	jl .mouse_wheel_epilog
+	sub eax, ecx
+	mov [esp + 12], ax
+	sub [esp + 16], cx
 
+	lea eax, [esp + 10]
+	push eax
+	push 1 ; absolute coordinates
+	push edi
+	call [SetConsoleWindowInfo]
+.mouse_wheel_epilog:
+	add esp, 24
 	jmp .epilog
 .window:
+	; conpaint_buffer_width ← INPUT_RECORD.Event.WindowBufferSizeEvent.dwSize.X
+	; conpaint_buffer_height ← INPUT_RECORD.Event.WindowBufferSizeEvent.dwSize.Y
+	; ECX ← .X * .Y * 4
+	mov edx, [esp + 4]
+	movzx eax, dx
+	shr edx, 16
+	mov [conpaint_buffer_width], eax
+	mov [conpaint_buffer_height], edx
+	imul eax, edx
+	lea ecx, [eax * 4]
+
+	; realloc(conpaint_buffer, ECX)
+	push ecx
+	mov edx, [conpaint_buffer]
+	test edx, edx
+	jz .buffer_null
+	push edx
+	push 0x00000008 ; HEAP_ZERO_MEMORY
+	call [GetProcessHeap]
+	push eax
+	call [HeapReAlloc]
+	test eax, eax
+	jz exit_failure
+	mov [conpaint_buffer], eax
+	jmp .epilog
+.buffer_null:
+	push 0x00000008 ; HEAP_ZERO_MEMORY
+	call [GetProcessHeap]
+	push eax
+	call [HeapAlloc]
+	test eax, eax
+	jz exit_failure
+	mov [conpaint_buffer], eax
 	jmp .epilog
 .epilog:
 	add esp, 20
 	jmp event_loop
+
+; Convert internal representation to Unicode character.
+; 31        24 23      16 15  12 11   8 7    0
+; [0000000000] [LLBBRRTT] [IRGB] [IRGB] [   0]
+;   Reserved    Line sty.   BG     FG    Type
+; LL (left), BB (bottom), RR (right), TT (top): 0 = none; 1 = thin; 2 = double; 3 = thick
+; BG & FG are in the same format as Windows console character attributes.
+; 31                   16 15  12 11   8 7    0
+; [                     ] [IRGB] [IRGB] [   1]
+;  Unicode BMP codepoint    BG     FG    Type
+; SMP codepoints are not representable.
+conpaint_atoc:
+	ror eax, 16
+	test eax, 0x00010000
+	movzx eax, ax
+	jnz .ret
+	mov eax, [conpaint_table + eax * 2]
+.ret:
+	ret
 
 colorful_stub:
 	push buffer
@@ -1010,6 +1095,41 @@ exit:
 	sub eax, esp
 	push eax
 	call [ExitProcess]
+
+cls:
+	sub esp, 24 ; sizeof(CONSOLE_SCREEN_BUFFER_INFO) = 22
+	; ESP → csbi
+	push esp
+	push dword [hStdOut]
+	call [GetConsoleScreenBufferInfo]
+	; EAX ← csbi.dwSize.X × csbi.dwSize.Y
+	movzx eax, word [esp]
+	movzx edx, word [esp + 2]
+	imul eax, edx
+	; EDX ← csbi.wAttributes
+	movzx edx, word [esp + 20]
+	; ECX → garbage variable
+	lea ecx, [esp + 12]
+
+	push ecx
+	push 0
+	push eax
+	push edx
+	push dword [hStdOut]
+
+	push ecx
+	push 0
+	push eax
+	push ' '
+	push dword [hStdOut]
+	call [FillConsoleOutputCharacterW]
+	call [FillConsoleOutputAttribute]
+
+	push 0
+	push dword [hStdOut]
+	call [SetConsoleCursorPosition]
+	add esp, 24
+	ret
 
 ; EAX ← gcd(EAX, EDX)
 ; Adapted from Assembly Language Lab by Paul Hsieh.
@@ -1714,7 +1834,23 @@ window_title:
 	dw __utf16__("This window cannot be created in DOS mode."), 0
 console_title:
 	dw __utf16__("This console cannot be allocated in DOS mode."), 0
-	align 32
+conpaint_table:
+	dw __utf16__(` ╵\0╹╶└╙┖\0╘╚\0╺┕\0┗`)
+	dw __utf16__(`╷│\0╿┌├\0┞╒╞\0\0┍┝\0┡`)
+	dw __utf16__(`\0\0║\0╓\0╟\0╔\0╠\0\0\0\0\0`)
+	dw __utf16__(`╻╽\0┃┎┟\0┠\0\0\0\0┏┢\0┣`)
+	dw __utf16__(`╴┘╜┚─┴╨┸\0\0\0\0╼┶\0┺`)
+	dw __utf16__(`┐┤\0┦┬┼\0╀\0\0\0\0┮┾\0╄`)
+	dw __utf16__(`╖\0╢\0╥\0╫\0\0\0\0\0\0\0\0\0`)
+	dw __utf16__(`┒┧\0┨┰╁\0╂\0\0\0\0┲╆\0╊`)
+	dw __utf16__(`\0╛╝\0\0\0\0\0═╧╩\0\0\0\0\0`)
+	dw __utf16__(`╕╡\0\0\0\0\0\0╤╪\0\0\0\0\0\0`)
+	dw __utf16__(`╗\0╣\0\0\0\0\0╦\0╬\0\0\0\0\0`)
+	dw __utf16__(`\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0`)
+	dw __utf16__(`╸┙\0┛╾┵\0┹\0\0\0\0━┷\0┻`)
+	dw __utf16__(`┑┥\0┩┭┽\0╃\0\0\0\0┯┿\0╇`)
+	dw __utf16__(`\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0`)
+	dw __utf16__(`┓┪\0┫┱╅\0╉\0\0\0\0┳╈\0╋`)
 DEBUGCMDLINE:
 	dw __utf16__("slzprog-output.exe 1 2 3 4444"), 0
 DEBUGUTF8STR:
