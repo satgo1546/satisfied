@@ -1780,6 +1780,40 @@ base64_btoa:
 base64_table:
 	db "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
+jit:
+	push 0x04 ; PAGE_READWRITE
+	push 0x1000 ; MEM_COMMIT
+	push 6
+	push 0
+	call [VirtualAlloc]
+	push eax
+	mov byte [eax + 0], 0xb8 ; mov eax,
+	mov byte [eax + 1], 0x2a ; 42
+	mov byte [eax + 2], 0x00
+	mov byte [eax + 3], 0x00
+	mov byte [eax + 4], 0x00
+	mov byte [eax + 5], 0xc3 ; ret
+
+	push 0
+	push esp
+	push 0x20 ; PAGE_EXECUTE_READ
+	push 6
+	push eax
+	call [VirtualProtect]
+	pop eax
+
+	call [esp]
+	push eax
+
+	push 0x8000 ; MEM_RELEASE
+	push 0
+	push dword [esp + 12]
+	call [VirtualFree]
+
+	pop eax
+	pop ecx
+	ret
+
 str1:
 	db 0x4f, 'T'
 	db 0x6f, 'h'
