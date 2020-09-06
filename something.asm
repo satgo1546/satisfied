@@ -94,13 +94,13 @@ MAX_PATH equ 256
 %endmacro
 
 %macro heap_alloc 1
-	call [GetProcessHeap]
 	push %1
 	push 0
+	call [GetProcessHeap]
 	push eax
 	call [HeapAlloc]
 	test eax, eax
-	jz exit_win32_error
+	jz exit_failure
 %endmacro
 
 absolute 0x00402000
@@ -172,6 +172,10 @@ org 0x00403000
 	load_function SetConsoleMode
 	load_function SetConsoleCursorInfo
 	load_function ReadConsoleInputW
+	load_function HeapReAlloc
+	load_function VirtualAlloc
+	load_function VirtualProtect
+	load_function VirtualFree
 	load_function SetThreadLocale
 	load_function GetModuleHandleW
 	load_function GetModuleFileNameW
@@ -179,6 +183,9 @@ org 0x00403000
 	load_function GetCommandLineW
 	load_function WaitForSingleObject
 	load_function WriteConsoleOutputW
+	load_function SetConsoleWindowInfo
+	load_function FillConsoleOutputCharacterW
+	load_function FillConsoleOutputAttribute
 	db 0
 
 	load_function_start [hKernel32], 0
@@ -515,8 +522,8 @@ parse_commandline:
 
 main:
 	cmp dword [argc], 2
-	jb colorful_stub
-	je conpaint
+	je colorful_stub
+	jb conpaint
 
 xxd:
 	; Loop reading characters and converting them to hexadecimal.
@@ -546,7 +553,7 @@ xxd:
 	sbb al, 0x69
 	das
 	xchg al, ah
-	or eax, 0x00200000
+	or eax, `\0\0\x20`
 	push eax
 	mov eax, esp
 	push 0
@@ -617,7 +624,7 @@ event_loop:
 	pop eax
 
 	test eax, eax
-	jz event_loop
+	jz .epilog
 
 	; ESP → INPUT_RECORD
 	movzx eax, word [esp]
@@ -647,15 +654,40 @@ event_loop:
 	setnz ch
 	and cl, ch
 
-	jnz exit
+	jz .key_epilog
+	push exit
+	ret 20
+	add esp, 20
+	jmp exit
+.key_epilog:
+	call cls
 	jmp .epilog
 .mouse:
+	mov edx, [esp + 16]
+	test edx, edx
+	jz .mouse_button
+	test edx, 0x0008 ; MOUSE_HWHEELED
+	test edx, 0x0004 ; MOUSE_WHEELED
+	jnz .mouse_wheel
+	test edx, 0x0001 ; MOUSE_MOVED
+	jnz .mouse_move
+	test edx, 0x0002 ; DOUBLE_CLICK
+	jmp .epilog
+.mouse_button:
+.mouse_move:
 	push dword [esp + 4]
 	push edi
 	call [SetConsoleCursorPosition]
 
 	mov edx, [esp + 4]
-	mov eax, 0x40 | ((0x002a) << 16)
+	mov eax, 0x40 | ((0x9c2a) << 16)
+	;#define COMMON_LVB_GRID_HORIZONTAL 0x0400 // DBCS: Grid attribute: top horizontal.
+	;#define COMMON_LVB_GRID_LVERTICAL  0x0800 // DBCS: Grid attribute: left vertical.
+	;#define COMMON_LVB_GRID_RVERTICAL  0x1000 // DBCS: Grid attribute: right vertical.
+	;#define COMMON_LVB_REVERSE_VIDEO   0x4000 // DBCS: Reverse fore/back ground attribute.
+	;#define COMMON_LVB_UNDERSCORE      0x8000 // DBCS: Underscore.
+	; Keisen are incorporated into Windows NT for OS/2-J console applications compatibility. These attributes are designed for IBM-J’s local video display adapter’s hardware attribute sets.
+	; — Microsoft KB145925
 	or eax, [esp + 8]
 	mov [buffer], eax
 	push edx
@@ -704,7 +736,7 @@ colorful_stub:
 	test eax, eax
 	jnz .loop
 
-	push 0x00070a0d ; "\r\n\a"
+	push `\r\n\a`
 	mov eax, esp
 	push 0
 	push esp
@@ -1534,7 +1566,7 @@ base64_btoa:
 	shr edx, 1
 	mov ecx, edx
 	; len ← len mod 3
-	imul eax, edx, 3
+	lea eax, [edx * 3]
 	sub [esp + 24], eax
 .loop:
 	xor eax, eax
