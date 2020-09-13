@@ -1814,6 +1814,33 @@ jit:
 	pop ecx
 	ret
 
+vm:
+	; 31               EAX                0
+	; [0000000S 0000000V 0000000Z 0000000C]
+	; where V = overflow flag
+	neg al
+	; [0000000S 0000000V 0000000Z CCCCCCCC]
+	shr ax, 1
+	; [0000000S 0000000V 00000000 ZCCCCCCC]
+	bswap eax
+	; [ZCCCCCCC 00000000 0000000V 0000000S]
+	xor al, ah
+	; [ZCCCCCCC 00000000 0000000V 0000000<]
+	; where < = sign flag ⊕ overflow flag
+	shl ah, 1
+	; [ZCCCCCCC 00000000 000000V0 0000000<]
+	or al, ah
+	; [ZCCCCCCC 00000000 000000V0 000000V<]
+	rol eax, 2
+	; [CCCCCC00 00000000 0000V000 0000V<ZC]
+
+	; if (AH ≥ 7) AH++
+	cmp ah, 7
+	cmc
+	adc ah, 0
+	test al, ah
+	ret
+
 str1:
 	db 0x4f, 'T'
 	db 0x6f, 'h'

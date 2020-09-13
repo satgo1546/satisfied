@@ -45,6 +45,7 @@ details {
 	border: thin solid silver;
 	padding: 4px 4px 0;
 	background-color: rgba(255, 255, 255, 0.5);
+	margin: 1em 0;
 }
 
 summary {
@@ -55,13 +56,25 @@ summary {
 	background-color: white;
 }
 
+summary:active, details[open] summary:active {
+	background-color: silver;
+}
+
 details[open] {
-	padding: 4px;
+	padding: 4px 8px;
 }
 
 details[open] summary {
 	background-color: gainsboro;
-	margin-bottom: 4px;
+	margin: -4px -8px 4px;
+}
+
+.reserved {
+	background-color: silver;
+}
+
+table {
+	border-collapse: collapse;
 }
 </style>
 <h1>satgo1546/satisfied</h1>
@@ -82,3 +95,455 @@ details[open] summary {
 		</figure>
 	</center>
 </details>
+<details>
+	<summary>虚拟机（暂定）</summary>
+	<p>32位。</p>
+	<h2>寄存器</h2>
+	<table border="2" cellspacing="0" cellpadding="2">
+		<tr>
+			<th>0</th>
+			<td>常量0</td>
+		</tr>
+		<tr>
+			<th>1</th>
+			<td>常量1</td>
+		</tr>
+		<tr>
+			<th>2</th>
+			<td>立即数</td>
+		</tr>
+		<tr>
+			<th>3</th>
+			<td>常量&#8722;1</td>
+		</tr>
+		<tr>
+			<th>4～F</th>
+			<td>通用寄存器</td>
+		</tr>
+		<tr>
+			<th>标志</th>
+			<td>进位、零、溢出、符号标志</td>
+		</tr>
+	</table>
+	<h2>指令集</h2>
+
+	<table border="2" cellspacing="0" cellpadding="2">
+		<tr>
+			<th>　</th>
+			<th>0</th>
+			<th>1</th>
+			<th>2</th>
+			<th>3</th>
+			<th>4</th>
+			<th>5</th>
+			<th>6</th>
+			<th>7</th>
+			<th>8</th>
+			<th>9</th>
+			<th>A</th>
+			<th>B</th>
+			<th>C</th>
+			<th>D</th>
+			<th>E</th>
+			<th>F</th>
+		</tr>
+		<tr>
+			<th>00</th>
+			<td>停机</td>
+			<td>返回</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>清进位</td>
+			<td>置进位</td>
+			<td>空操作</td>
+			<td>进位取反</td>
+			<td>入栈</td>
+			<td>出栈</td>
+			<td>带进位循环右移</td>
+			<td>交换端序</td>
+			<td>带符号扩展0～15</td>
+			<td>带符号扩展16～31</td>
+			<td>带符号扩展<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>10</th>
+			<td class="reserved">&nbsp;</td>
+			<td>位与</td>
+			<td>位异或</td>
+			<td>位或</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>测试</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>装入8</td>
+			<td>装入16</td>
+			<td>装入32</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>20</th>
+			<td>左移0～15</td>
+			<td>左移16～31</td>
+			<td>左移<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+			<td>右移0～15</td>
+			<td>右移16～31</td>
+			<td>右移<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+			<td>循环左移0～15</td>
+			<td>循环左移16～31</td>
+			<td>循环左移<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+			<td>循环右移0～15</td>
+			<td>循环右移16～31</td>
+			<td>循环右移<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>30</th>
+			<td>加法</td>
+			<td>带进位加法</td>
+			<td>减法</td>
+			<td>带退位减法</td>
+			<td>反向减法</td>
+			<td>带退位反向减法</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>比较负</td>
+			<td class="reserved">&nbsp;</td>
+			<td>比较</td>
+			<td class="reserved">&nbsp;</td>
+			<td>保存8</td>
+			<td>保存16</td>
+			<td>保存32</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>40</th>
+			<td class="reserved">&nbsp;</td>
+			<td>乘法</td>
+			<td>无符号除法</td>
+			<td>带符号除法</td>
+			<td>无符号取余</td>
+			<td>带符号取余</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>位反转</td>
+			<td>位计数</td>
+			<td>前导零计数</td>
+			<td>尾缀零计数</td>
+			<td>算术右移0～15</td>
+			<td>算术右移16～31</td>
+			<td>算术右移<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>50</th>
+			<td>交换</td>
+			<td>传送</td>
+			<td>无符号&lt;则传送</td>
+			<td>无符号≥则传送</td>
+			<td>=则传送</td>
+			<td>≠则传送</td>
+			<td>无符号≤则传送</td>
+			<td>无符号&gt;则传送</td>
+			<td>带符号&lt;则传送</td>
+			<td>带符号≥则传送</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>带符号≤则传送</td>
+			<td>带符号&gt;则传送</td>
+			<td>溢出则传送</td>
+			<td>不溢出则传送</td>
+		</tr>
+		<tr>
+			<th>60</th>
+			<td>近调用</td>
+			<td>近跳转</td>
+			<td>无符号&lt;则近跳转</td>
+			<td>无符号≥则近跳转</td>
+			<td>=则近跳转</td>
+			<td>≠则近跳转</td>
+			<td>无符号≤则近跳转</td>
+			<td>无符号&gt;则近跳转</td>
+			<td>带符号&lt;则近跳转</td>
+			<td>带符号≥则近跳转</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>带符号≤则近跳转</td>
+			<td>带符号&gt;则近跳转</td>
+			<td>溢出则近跳转</td>
+			<td>不溢出则近跳转</td>
+		</tr>
+		<tr>
+			<th>70</th>
+			<td>远调用</td>
+			<td>远跳转</td>
+			<td>无符号&lt;则远跳转</td>
+			<td>无符号≥则远跳转</td>
+			<td>=则远跳转</td>
+			<td>≠则远跳转</td>
+			<td>无符号≤则远跳转</td>
+			<td>无符号&gt;则远跳转</td>
+			<td>带符号&lt;则远跳转</td>
+			<td>带符号≥则远跳转</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>带符号≤则远跳转</td>
+			<td>带符号&gt;则远跳转</td>
+			<td>溢出则远跳转</td>
+			<td>不溢出则远跳转</td>
+		</tr>
+		<tr>
+			<th>80</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>90</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>A0</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>B0</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>C0</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>D0</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>E0</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+		</tr>
+		<tr>
+			<th>F0</th>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td>无效</td>
+		</tr>
+	</table>
+
+	<h2>条件码</h2>
+	<table border="2" cellspacing="0" cellpadding="2">
+		<tr>
+			<th>0</th>
+			<td>假</td>
+			<td>⊥</td>
+		</tr>
+		<tr>
+			<th>1</th>
+			<td>真</td>
+			<td>&#8868;</td>
+		</tr>
+		<tr>
+			<th>2</th>
+			<td>无符号&lt;</td>
+			<td>进位标志</td>
+		</tr>
+		<tr>
+			<th>3</th>
+			<td>无符号≥</td>
+			<td>&not;进位标志</td>
+		</tr>
+		<tr>
+			<th>4</th>
+			<td>=</td>
+			<td>零标志</td>
+		</tr>
+		<tr>
+			<th>5</th>
+			<td>≠</td>
+			<td>&not;零标志</td>
+		</tr>
+		<tr>
+			<th>6</th>
+			<td>无符号≤</td>
+			<td>进位标志 ∨ 零标志</td>
+		</tr>
+		<tr>
+			<th>7</th>
+			<td>无符号&gt;</td>
+			<td>&not;进位标志 ∧ &not;零标志</td>
+		</tr>
+		<tr>
+			<th>8</th>
+			<td>带符号&lt;</td>
+			<td>符号标志 ⊕ 溢出标志</td>
+		</tr>
+		<tr>
+			<th>9</th>
+			<td>带符号≥</td>
+			<td>&not;(符号标志 ⊕ 溢出标志)</td>
+		</tr>
+		<tr>
+			<th>A</th>
+			<td class="reserved">&nbsp;</td>
+			<td></td>
+		</tr>
+		<tr>
+			<th>B</th>
+			<td class="reserved">&nbsp;</td>
+			<td></td>
+		</tr>
+		<tr>
+			<th>C</th>
+			<td>带符号≤</td>
+			<td>零标志 ∨ (符号标志 ⊕ 溢出标志)</td>
+		</tr>
+		<tr>
+			<th>D</th>
+			<td>带符号&gt;</td>
+			<td>&not;零标志 ∧ &not;(符号标志 ⊕ 溢出标志)</td>
+		</tr>
+		<tr>
+			<th>E</th>
+			<td>溢出</td>
+			<td>溢出标志</td>
+		</tr>
+		<tr>
+			<th>F</th>
+			<td>不溢出</td>
+			<td>&not;溢出标志</td>
+		</tr>
+	</table>
+	<h2>常见问题</h2>
+	<ul>
+		<li>SETcc R → MOV R, 0; CMOVcc R, 1</li>
+		<li>ZXT8 R → AND R, 0xFF</li>
+		<li>ZXT16 R → AND R, 0xFFFF</li>
+		<li>RCL R → ADC R, R</li>
+		<li>NEG R → RSUB R, 0</li>
+		<li>NOT R → XOR R, &#8722;1</li>
+		<li>INC R → ADD R, 1</li>
+		<li>DEC R → SUB R, 1</li>
+	</ul>
