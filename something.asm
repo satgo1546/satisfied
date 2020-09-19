@@ -1815,30 +1815,164 @@ jit:
 	ret
 
 vm:
-	; 31               EAX                0
+.loop:
+	; ESI → instruction
+	; EBP = instruction
+	; EDI → structure for virtual machine, shown below
+
+	;  EDI      EDI + 16      EDI + 64  EDI + 68
+	; [....     RRRRRRRRRRRR  F         CDCDCDCD…]
+	;  scratch  12 registers  flags     heap
+
+	; EBP ← opcode
+	lodsb
+	movzx ebp, al
+	test al, al
+	jz .halt
+	js .undefined
+
+	;                                  ⎧ 0  0x00 < opcode ≤ 0x07
+	; Load operands and advance ESI by ⎨ 1  0x08 ≤ opcode ≤ 0x6f .
+	;                                  ⎩ 4  0x70 ≤ opcode ≤ 0x7f
+	mov ecx, eax
+	; EAX ← operands (possibly with garbage in top bytes)
+	lodsd
+	; CL = opcode
+	; ECX ← opcode like 0bx111xxxx ? 0 : 3
+	not ecx
+	and ecx, 0x70
+	setz cl
+	dec ecx
+	and ecx, 3
+	; ESI −= ECX
+	; if (EBP < 0x08) ESI−−
+	cmp ebp, 0x08
+	sbb esi, ecx
+	; EBP ← opcode and operands
+	mov ecx, eax
+	shl ecx, 8
+	or ebp, ecx
+
+	; Calculate the condition.
+	; 31               ECX                0
+	; [???????? ???????? ???????? ????????]
+	; ECX ← flags
+	mov ecx, [edi + 64]
 	; [0000000S 0000000V 0000000Z 0000000C]
-	; where V = overflow flag
-	neg al
+	; where S = sign flag; V = overflow flag; Z = zero flag; C = carry flag
+	neg cl
 	; [0000000S 0000000V 0000000Z CCCCCCCC]
-	shr ax, 1
+	shr cx, 1
 	; [0000000S 0000000V 00000000 ZCCCCCCC]
-	bswap eax
+	bswap ecx
 	; [ZCCCCCCC 00000000 0000000V 0000000S]
-	xor al, ah
+	xor cl, ch
 	; [ZCCCCCCC 00000000 0000000V 0000000<]
 	; where < = sign flag ⊕ overflow flag
-	shl ah, 1
+	shl ch, 1
 	; [ZCCCCCCC 00000000 000000V0 0000000<]
-	or al, ah
+	or cl, ch
 	; [ZCCCCCCC 00000000 000000V0 000000V<]
-	rol eax, 2
-	; [CCCCCC00 00000000 0000V000 0000V<ZC]
-
-	; if (AH ≥ 7) AH++
-	cmp ah, 7
+	rol ecx, 3
+	; [CCCCC000 00000000 000V0000 000V<ZCC]
+	and ecx, 0x1e
+	; [00000000 00000000 00000000 000V<ZC0]
+	; BL ← opcode & 0x70
+	; BH ← condition met ? 1 : 0
+	; EDX ← condition code
+	mov edx, ebp
+	and edx, 0x0f
+	shr edx, 1
+	; if (EDX ≥ 7) EDX++
+	cmp edx, 7
 	cmc
+	adc edx, 0
+	shl edx, 1
+	test ecx, edx
+	mov ebx, ebp
+	setnz bh
+	xor bh, bl ; perform negation if necessary
+	and ebx, 0x0170
+	; ECX ← opcode like 0b011xxxxx ? 1 : 0
+	xor ecx, ecx
+	cmp bl, 0x60
+	setae cl
+
+	; For call instructions, push the return address onto the stack and force the condition to be true.
+	; EDX ← opcode like 0b011x0000 ? −1 : 0
+	; BH ← (condition met ∨ opcode like 0b011x0000) ? 1 : 0
+	xor edx, edx
+	test ebp, 0x0f
+	setz dl
+	and dl, cl
+	or bh, dl
+	neg edx
+	; if (EDX) push(ESI)
+	lea esp, [esp + edx * 4]
+	cmovnz [esp], esi
+
+	; All other instructions have one operand byte at most.
+	and ebp, 0xffff
+
+	; Read the contents of the source register.
+	; EAX ← index of the source register
+	; EDX ← contents of the source register
+	and eax, 0x0f
+	mov edx, [edi + eax * 4]
+	; R0 = constant 0; R1 = constant 1; R3 = constant −1
+	mov ecx, eax
+	shl ecx, 30
+	sar ecx, 30
+	test eax, 0x0c
+	cmovz edx, ecx
+	xor ecx, ecx
+	; R2 = 32-bit immediate
+	cmp eax, 2
+	cmove edx, [esi]
+	sete cl
+	lea esi, [esi + ecx * 4]
+
+	; For the swap instruction, store the contents of the destination register into the source register. Transfer in the other direction will be accomplished later in a unified fashion.
+	; ECX ← contents of the destination register
+	mov ecx, ebp
+	shr ecx, 12
+	mov ecx, [edi + ecx * 4]
+	cmp bl, 0x50
+	cmove [edi + eax * 4], ecx
+
+	; For conditional move instructions, EDX ← ECX if the condition is not met, so as to conditionally turn a store into the destination register a no-op.
+	; AL ← (condition met ∨ opcode = 0x50) ? 0 : 1
+	; AH ← 0x50 ≤ opcode ≤ 0x5f ? 1 : 0
+	sete al
+	setae ah
+	or al, bh
+	xor al, 1
+	cmp bl, 0x60
 	adc ah, 0
+	shr ah, 1
+	; if (AL & AH) EDX ← ECX
 	test al, ah
+	cmovnz edx, ecx
+
+	; All other instructions are unconditional.
+	; EBX = opcode and operands
+	; EBP = scratch register
+	mov ebx, ebp
+
+	; Reverse bytes/bits instructions.
+	.....
+
+	; Set flags.
+	sets al
+	seto ah
+	bswap eax
+	setc al
+	setz ah
+	cmovnz [edi + 64], eax
+	jmp .loop
+.halt:
+	ret
+.undefined:
 	ret
 
 str1:
