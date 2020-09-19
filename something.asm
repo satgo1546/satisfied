@@ -1814,50 +1814,68 @@ jit:
 	pop ecx
 	ret
 
+; void vm(void *program, struct vm *vm)
 vm:
-.loop:
+	push ebx
+	push ebp
+	push esi
+	push edi
+
 	; ESI → instruction
-	; EBP = instruction
-	; EDI → structure for virtual machine, shown below
+	; EBX[23:0] = instruction
+	; EDI → structure for the virtual machine, shown below
 
 	;  EDI      EDI + 16      EDI + 64  EDI + 68
 	; [....     RRRRRRRRRRRR  F         CDCDCDCD…]
 	;  scratch  12 registers  flags     heap
-
-	; EBP ← opcode
-	lodsb
-	movzx ebp, al
-	test al, al
+	mov esi, [esp + 20]
+	mov edi, [esp + 24]
+.loop:
+	; EBX ← opcode
+	movzx ebx, byte [esi]
+	inc esi
+	test bl, bl
 	jz .halt
 	js .undefined
 
 	;                                  ⎧ 0  0x00 < opcode ≤ 0x07
 	; Load operands and advance ESI by ⎨ 1  0x08 ≤ opcode ≤ 0x6f .
 	;                                  ⎩ 4  0x70 ≤ opcode ≤ 0x7f
-	mov ecx, eax
 	; EAX ← operands (possibly with garbage in top bytes)
 	lodsd
-	; CL = opcode
-	; ECX ← opcode like 0bx111xxxx ? 0 : 3
+	; ECX ← opcode like 0b0111xxxx ? 0 : 3
+	mov ecx, eax
 	not ecx
 	and ecx, 0x70
-	setz cl
-	dec ecx
-	and ecx, 3
+	setnz cl
+	lea ecx, [ecx * 3]
 	; ESI −= ECX
-	; if (EBP < 0x08) ESI−−
-	cmp ebp, 0x08
+	; if (EBX < 0x08) ESI−−
+	cmp ebx, 0x08
 	sbb esi, ecx
-	; EBP ← opcode and operands
-	mov ecx, eax
-	shl ecx, 8
-	or ebp, ecx
+	; EBX ← opcode and operands
+	rol eax, 8
+	xor ebx, eax
+	xor bl, al
+	ror eax, 8
+
+	; Carry flag instructions.
+	; ECX ← flags
+	mov ecx, [edi + 64]
+	mov ebp, ecx
+	mov edx, ebx
+	shr edx, 1
+	and cl, dl
+	xor cl, bl
+	and cl, 1
+	xor ebx, 0x04
+	test bl, 0xfc
+	cmovz [edi + 64], ecx
+	xor ebx, 0x04
+	mov ecx, ebp
 
 	; Calculate the condition.
 	; 31               ECX                0
-	; [???????? ???????? ???????? ????????]
-	; ECX ← flags
-	mov ecx, [edi + 64]
 	; [0000000S 0000000V 0000000Z 0000000C]
 	; where S = sign flag; V = overflow flag; Z = zero flag; C = carry flag
 	neg cl
@@ -1877,87 +1895,131 @@ vm:
 	; [CCCCC000 00000000 000V0000 000V<ZCC]
 	and ecx, 0x1e
 	; [00000000 00000000 00000000 000V<ZC0]
-	; BL ← opcode & 0x70
-	; BH ← condition met ? 1 : 0
-	; EDX ← condition code
-	mov edx, ebp
-	and edx, 0x0f
-	shr edx, 1
-	; if (EDX ≥ 7) EDX++
-	cmp edx, 7
+	; EBX[31] ← condition met ? 1 : 0
+	mov edx, ebx
+	and edx, 0x0e
+	; EDX += (EDX ≥ 14 ? 2 : 1)
+	cmp edx, 14
 	cmc
-	adc edx, 0
-	shl edx, 1
+	adc edx, 1
 	test ecx, edx
-	mov ebx, ebp
-	setnz bh
-	xor bh, bl ; perform negation if necessary
-	and ebx, 0x0170
-	; ECX ← opcode like 0b011xxxxx ? 1 : 0
-	xor ecx, ecx
+	setnz dl
+	xor dl, bl ; perform negation if necessary
+	shl ebx, 1
+	rcr edx, 1
+	rcr ebx, 1
+
+	; For call and swap instructions, force the condition to be true.
+	test ebx, 0x0f
+	setz cl
+	ror ecx, 1
+	or ebx, ecx
+
+	; Set index of the source register to 0 if opcode is out of the range [0x08, 0x5f].
+	; EBP ← index of the source register
 	cmp bl, 0x60
-	setae cl
-
-	; For call instructions, push the return address onto the stack and force the condition to be true.
-	; EDX ← opcode like 0b011x0000 ? −1 : 0
-	; BH ← (condition met ∨ opcode like 0b011x0000) ? 1 : 0
-	xor edx, edx
-	test ebp, 0x0f
-	setz dl
-	and dl, cl
-	or bh, dl
-	neg edx
-	; if (EDX) push(ESI)
-	lea esp, [esp + edx * 4]
-	cmovnz [esp], esi
-
-	; All other instructions have one operand byte at most.
-	and ebp, 0xffff
+	sbb ebp, ebp
+	test bl, 0xf8
+	setz cl
+	dec ecx
+	and ebp, ecx
+	and ebp, eax
+	and ebp, 0x0f
 
 	; Read the contents of the source register.
-	; EAX ← index of the source register
 	; EDX ← contents of the source register
-	and eax, 0x0f
-	mov edx, [edi + eax * 4]
+	mov edx, [edi + ebp * 4]
 	; R0 = constant 0; R1 = constant 1; R3 = constant −1
 	mov ecx, eax
 	shl ecx, 30
 	sar ecx, 30
 	test eax, 0x0c
 	cmovz edx, ecx
-	xor ecx, ecx
 	; R2 = 32-bit immediate
-	cmp eax, 2
+	xor ecx, ecx
+	cmp ebp, 2
 	cmove edx, [esi]
 	sete cl
 	lea esi, [esi + ecx * 4]
 
-	; For the swap instruction, store the contents of the destination register into the source register. Transfer in the other direction will be accomplished later in a unified fashion.
-	; ECX ← contents of the destination register
-	mov ecx, ebp
-	shr ecx, 12
-	mov ecx, [edi + ecx * 4]
-	cmp bl, 0x50
-	cmove [edi + eax * 4], ecx
+	; Pushing instructions include call and push instructions. Value to be pushed should be in EDX.
+	; if (opcode ∈ {0x60, 0x70}) EDX ← ESI
+	mov cl, bl
+	and cl, 0x60
+	cmp cl, 0x60
+	cmove edx, esi
 
-	; For conditional move instructions, EDX ← ECX if the condition is not met, so as to conditionally turn a store into the destination register a no-op.
-	; AL ← (condition met ∨ opcode = 0x50) ? 0 : 1
-	; AH ← 0x50 ≤ opcode ≤ 0x5f ? 1 : 0
-	sete al
-	setae ah
-	or al, bh
-	xor al, 1
+	; if (opcode ∈ {0x08, 0x60, 0x70}) push(EDX)
+	; EBP = ΔESP / 4 (to be added to ESP)
+	setne cl
+	cmp bl, 0x08
+	setne ch
+	and cl, ch
+	movzx ebp, cl
+	dec ebp
+	cmovnz [esp - 4], edx
+
+	; For near jumps, sign extend the lowest 8 bits to a 32-bit offset.
+	movsx ecx, al
+	test ebx, 0x10
+	cmovz eax, ecx
+
+	; Execute the jump.
+	; if (opcode ≥ 0x60 ∧ condition met) ESI += EAX
 	cmp bl, 0x60
-	adc ah, 0
-	shr ah, 1
-	; if (AL & AH) EDX ← ECX
-	test al, ah
-	cmovnz edx, ecx
+	setae cl
+	ror ecx, 1
+	and ecx, ebx
+	sar ecx, 31
+	and ecx, eax
+	add esi, ecx
 
-	; All other instructions are unconditional.
-	; EBX = opcode and operands
-	; EBP = scratch register
-	mov ebx, ebp
+	; All other instructions have one operand byte at most, which is available in BH.
+	; EAX = scratch register
+
+	; if (opcode = 0x09) pop(EDX)
+	; if (opcode = 0x01) pop(ESI)
+	xor bl, 0x09
+	cmovz edx, [esp]
+	setz al
+	xor bl, 0x08
+	cmovz esi, [esp]
+	setz ah
+	xor bl, 0x01
+	or al, ah
+	and eax, 1
+	or ebp, eax
+
+	; Adjust the stack pointer.
+	lea esp, [esp + ebp * 4]
+
+	; Set index of the destination register to 0 if opcode is less than 0x09.
+	cmp bl, 0x09
+	cmc
+	sbb eax, eax
+	and eax, 0x0f
+	and bh, al
+
+	; Read the contents of the destination register.
+	; ECX ← index of the destination register
+	; EAX ← contents of the destination register
+	xor ecx, ecx
+	mov cl, bh
+	shr ecx, 4
+	mov eax, [edi + ecx * 4]
+
+	; For the swap instruction, store the contents of the destination register into the source register. Transfer in the other direction will be accomplished later in a unified fashion.
+	cmp bl, 0x50
+	cmove [edi + ecx * 4], eax
+
+	; For conditional move instructions, EDX ← EAX if the condition is not met, effectively turning a store into the destination register a no-op conditionally.
+	setae cl
+	cmp bl, 0x60
+	adc ecx, 0
+	shl ecx, 30
+	; if (0x50 ≤ opcode < 0x60 ∧ condition met) EDX ← ECX
+	test ecx, ebx
+	cmovs edx, eax
 
 	; Reverse bytes/bits instructions.
 	.....
@@ -1971,8 +2033,13 @@ vm:
 	cmovnz [edi + 64], eax
 	jmp .loop
 .halt:
-	ret
 .undefined:
+.ret:
+	pop edi
+	pop esi
+	pop ebp
+	pop ebx
+	; This return may crash if the program does not balance the stack.
 	ret
 
 str1:
