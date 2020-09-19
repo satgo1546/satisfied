@@ -1870,7 +1870,8 @@ vm:
 	and cl, 1
 	xor ebx, 0x04
 	test bl, 0xfc
-	cmovz [edi + 64], ecx
+	cmovnz ecx, [edi + 64]
+	mov [edi + 64], ecx
 	xor ebx, 0x04
 	mov ecx, ebp
 
@@ -1941,6 +1942,15 @@ vm:
 	cmove edx, [esi]
 	sete cl
 	lea esi, [esi + ecx * 4]
+	; For shift instructions, the immediate is 8 bits wide instead.
+	mov ch, bl
+	and ch, 0x70
+	cmp ch, 0x20
+	sete ch
+	and cl, ch
+	xor ch, ch
+	lea ecx, [ecx * 3]
+	sub esi, ecx
 
 	; Pushing instructions include call and push instructions. Value to be pushed should be in EDX.
 	; if (opcode ∈ {0x60, 0x70}) EDX ← ESI
@@ -1957,7 +1967,7 @@ vm:
 	and cl, ch
 	movzx ebp, cl
 	dec ebp
-	cmovnz [esp - 4], edx
+	mov [esp - 4], edx
 
 	; For near jumps, sign extend the lowest 8 bits to a 32-bit offset.
 	movsx ecx, al
@@ -2021,8 +2031,71 @@ vm:
 	test ecx, ebx
 	cmovs edx, eax
 
-	; Reverse bytes/bits instructions.
-	.....
+	; All other instructions do not rely on values the destination register initially contains.
+	; EAX = scratch register
+
+	; Reverse bytes instruction.
+	mov eax, edx
+	bswap eax
+	cmp bl, 0x0b
+	cmove edx, eax
+	; Reverse bits instruction.
+	mov ebp, 0x0f0f0f0f
+	mov ecx, eax
+	and ecx, ebp
+	shr eax, 4
+	and eax, ebp
+	shl ecx, 4
+	or eax, ecx
+	; EBP ← 0x33333333
+	lea ecx, [ebp * 4]
+	xor ebp, ecx
+	mov ecx, eax
+	and ecx, ebp
+	shr eax, 2
+	and eax, ebp
+	lea eax, [eax + ecx * 4]
+	; EBP ← 0x55555555
+	lea ecx, [ebp * 2]
+	xor ebp, ecx
+	mov ecx, eax
+	and ecx, ebp
+	shr eax, 1
+	and eax, ebp
+	lea eax, [eax + ecx * 2]
+	cmp bl, 0x48
+	cmove edx, eax
+	; Count set bits instruction.
+	mov eax, edx
+	shr eax, 1
+	and eax, ebp
+	neg eax
+	add eax, edx
+	mov ebp, 0x33333333
+	mov ecx, eax
+	shr ecx, 2
+	and eax, ebp
+	and ecx, ebp
+	and eax, ecx
+	mov ecx, eax
+	shr eax, 4
+	and eax, 0x0f0f0f0f
+	add eax, ecx
+	imul eax, 0x01010101
+	shr eax, 24
+	cmp bl, 0x49
+	cmove edx, eax
+
+	; Rotate with carry right instruction.
+	mov eax, edx
+	mov ecx, [edi + 64]
+	add cl, 0xff
+	rcr eax, 1
+	setc cl
+	cmp bl, 0x0a
+	cmove edx, eax
+	cmovne ecx, [edi + 64]
+	mov [edi + 64], ecx
 
 	; Set flags.
 	sets al

@@ -97,7 +97,7 @@ table {
 </details>
 <details>
 	<summary>虚拟机（暂定）</summary>
-	<p>32位。</p>
+	<p>32位，小端序。</p>
 	<h2>寄存器</h2>
 	<table border="2" cellspacing="0" cellpadding="2">
 		<tr>
@@ -126,10 +126,9 @@ table {
 		</tr>
 	</table>
 	<h2>指令集</h2>
-
 	<table border="2" cellspacing="0" cellpadding="2">
 		<tr>
-			<th>　</th>
+			<th>&nbsp;</th>
 			<th>0</th>
 			<th>1</th>
 			<th>2</th>
@@ -161,9 +160,9 @@ table {
 			<td>出栈</td>
 			<td>带进位循环右移</td>
 			<td>交换端序</td>
-			<td>带符号扩展0～15</td>
-			<td>带符号扩展16～31</td>
-			<td>带符号扩展<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
 			<td class="reserved">&nbsp;</td>
 		</tr>
 		<tr>
@@ -187,21 +186,21 @@ table {
 		</tr>
 		<tr>
 			<th>20</th>
-			<td>左移0～15</td>
-			<td>左移16～31</td>
-			<td>左移<var>x</var></td>
+			<td>左移</td>
+			<td>右移</td>
+			<td>算术右移</td>
+			<td>带符号扩展</td>
+			<td>循环左移</td>
+			<td>循环右移</td>
 			<td class="reserved">&nbsp;</td>
-			<td>右移0～15</td>
-			<td>右移16～31</td>
-			<td>右移<var>x</var></td>
 			<td class="reserved">&nbsp;</td>
-			<td>循环左移0～15</td>
-			<td>循环左移16～31</td>
-			<td>循环左移<var>x</var></td>
 			<td class="reserved">&nbsp;</td>
-			<td>循环右移0～15</td>
-			<td>循环右移16～31</td>
-			<td>循环右移<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
 			<td class="reserved">&nbsp;</td>
 		</tr>
 		<tr>
@@ -237,9 +236,9 @@ table {
 			<td>位计数</td>
 			<td>前导零计数</td>
 			<td>尾缀零计数</td>
-			<td>算术右移0～15</td>
-			<td>算术右移16～31</td>
-			<td>算术右移<var>x</var></td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
 			<td class="reserved">&nbsp;</td>
 		</tr>
 		<tr>
