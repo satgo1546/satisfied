@@ -114,7 +114,7 @@ table {
 		</tr>
 		<tr>
 			<th>3</th>
-			<td>常量&#8722;1</td>
+			<td>常量−1</td>
 		</tr>
 		<tr>
 			<th>4～F</th>
@@ -128,23 +128,23 @@ table {
 	<h2>指令集</h2>
 	<table border="2" cellspacing="0" cellpadding="2">
 		<tr>
-			<th>&nbsp;</th>
-			<th>0</th>
-			<th>1</th>
-			<th>2</th>
-			<th>3</th>
-			<th>4</th>
-			<th>5</th>
-			<th>6</th>
-			<th>7</th>
-			<th>8</th>
-			<th>9</th>
-			<th>A</th>
-			<th>B</th>
-			<th>C</th>
-			<th>D</th>
-			<th>E</th>
-			<th>F</th>
+			<th width="4%">&nbsp;</th>
+			<th width="6%">0</th>
+			<th width="6%">1</th>
+			<th width="6%">2</th>
+			<th width="6%">3</th>
+			<th width="6%">4</th>
+			<th width="6%">5</th>
+			<th width="6%">6</th>
+			<th width="6%">7</th>
+			<th width="6%">8</th>
+			<th width="6%">9</th>
+			<th width="6%">A</th>
+			<th width="6%">B</th>
+			<th width="6%">C</th>
+			<th width="6%">D</th>
+			<th width="6%">E</th>
+			<th width="6%">F</th>
 		</tr>
 		<tr>
 			<th>00</th>
@@ -160,10 +160,10 @@ table {
 			<td>出栈</td>
 			<td>带进位循环右移</td>
 			<td>交换端序</td>
-			<td class="reserved">&nbsp;</td>
-			<td class="reserved">&nbsp;</td>
-			<td class="reserved">&nbsp;</td>
-			<td class="reserved">&nbsp;</td>
+			<td>位反转</td>
+			<td>位计数</td>
+			<td>前导零计数</td>
+			<td>尾缀零计数</td>
 		</tr>
 		<tr>
 			<th>10</th>
@@ -179,9 +179,9 @@ table {
 			<td>测试</td>
 			<td class="reserved">&nbsp;</td>
 			<td class="reserved">&nbsp;</td>
-			<td>装入8</td>
-			<td>装入16</td>
-			<td>装入32</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
 			<td class="reserved">&nbsp;</td>
 		</tr>
 		<tr>
@@ -217,9 +217,9 @@ table {
 			<td class="reserved">&nbsp;</td>
 			<td>比较</td>
 			<td class="reserved">&nbsp;</td>
-			<td>保存8</td>
-			<td>保存16</td>
-			<td>保存32</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
+			<td class="reserved">&nbsp;</td>
 			<td class="reserved">&nbsp;</td>
 		</tr>
 		<tr>
@@ -232,13 +232,13 @@ table {
 			<td>带符号取余</td>
 			<td class="reserved">&nbsp;</td>
 			<td class="reserved">&nbsp;</td>
-			<td>位反转</td>
-			<td>位计数</td>
-			<td>前导零计数</td>
-			<td>尾缀零计数</td>
+			<td>装入8</td>
+			<td>装入16</td>
+			<td>装入32</td>
 			<td class="reserved">&nbsp;</td>
-			<td class="reserved">&nbsp;</td>
-			<td class="reserved">&nbsp;</td>
+			<td>保存8</td>
+			<td>保存16</td>
+			<td>保存32</td>
 			<td class="reserved">&nbsp;</td>
 		</tr>
 		<tr>
@@ -462,7 +462,7 @@ table {
 		<tr>
 			<th>1</th>
 			<td>真</td>
-			<td>&#8868;</td>
+			<td>⊤</td>
 		</tr>
 		<tr>
 			<th>2</th>
@@ -542,7 +542,7 @@ table {
 		<li>ZXT16 R → AND R, 0xFFFF</li>
 		<li>RCL R → ADC R, R</li>
 		<li>NEG R → RSUB R, 0</li>
-		<li>NOT R → XOR R, &#8722;1</li>
+		<li>NOT R → XOR R, −1</li>
 		<li>INC R → ADD R, 1</li>
 		<li>DEC R → SUB R, 1</li>
 	</ul>

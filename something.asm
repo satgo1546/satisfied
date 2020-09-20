@@ -2019,8 +2019,13 @@ vm:
 	mov eax, [edi + ecx * 4]
 
 	; For the swap instruction, store the contents of the destination register into the source register. Transfer in the other direction will be accomplished later in a unified fashion.
+	; ECX ← index of the source register
+	mov cl, bh
+	and ecx, 0x0f
 	cmp bl, 0x50
-	cmove [edi + ecx * 4], eax
+	mov ebp, edx
+	cmove ebp, eax
+	mov [edi + ecx * 4], ebp
 
 	; For conditional move instructions, EDX ← EAX if the condition is not met, effectively turning a store into the destination register a no-op conditionally.
 	setae cl
@@ -2063,7 +2068,7 @@ vm:
 	shr eax, 1
 	and eax, ebp
 	lea eax, [eax + ecx * 2]
-	cmp bl, 0x48
+	cmp bl, 0x0c
 	cmove edx, eax
 	; Count set bits instruction.
 	mov eax, edx
@@ -2083,7 +2088,7 @@ vm:
 	add eax, ecx
 	imul eax, 0x01010101
 	shr eax, 24
-	cmp bl, 0x49
+	cmp bl, 0x0d
 	cmove edx, eax
 
 	; Rotate with carry right instruction.
@@ -2103,7 +2108,8 @@ vm:
 	bswap eax
 	setc al
 	setz ah
-	cmovnz [edi + 64], eax
+	cmovz eax, [edi + 64]
+	mov [edi + 64], eax
 	jmp .loop
 .halt:
 .undefined:
