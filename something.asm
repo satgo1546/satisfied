@@ -2036,6 +2036,26 @@ vm:
 	test ecx, ebx
 	cmovs edx, eax
 
+	; Load instructions.
+	xor ebx, 0x48
+	test bl, 0xfc
+	cmovz edx, [edi + 68 + edx]
+	xor ebp, ebp
+	inc ebp
+	xor ecx, ecx
+	mov cl, bl
+	mov ch, 1
+	shl ch, cl
+	shr ecx, 5
+	dec ecx
+	shl ebp, cl
+	shl ebp, 1
+	dec ebp
+	and ebp, edx
+	test bl, 0xfc
+	cmovz edx, ebp
+	xor ebx, 0x48
+
 	; All other instructions do not rely on values the destination register initially contains.
 	; EAX = scratch register
 
@@ -2096,7 +2116,11 @@ vm:
 	mov ecx, [edi + 64]
 	add cl, 0xff
 	rcr eax, 1
+	sets cl
+	seto ch
+	bswap ecx
 	setc cl
+	setz ch
 	cmp bl, 0x0a
 	cmove edx, eax
 	cmovne ecx, [edi + 64]

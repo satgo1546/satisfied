@@ -125,6 +125,81 @@ table {
 			<td>进位、零、溢出、符号标志</td>
 		</tr>
 	</table>
+	<p>寄存器0～3只能作为源寄存器使用；标志寄存器不能作为源寄存器或目标寄存器直接使用。</p>
+	<h2>指令编码</h2>
+	<table border="2" cellspacing="0" cellpadding="2">
+		<tr>
+			<th rowspan="2">适用的操作码</th>
+			<th rowspan="2">指令类型</th>
+			<th colspan="6">字节</th>
+		</tr>
+		<tr>
+			<th>0</th>
+			<th>1</th>
+			<th>2</th>
+			<th>3</th>
+			<th>4</th>
+			<th>5</th>
+		</tr>
+		<tr>
+			<td>[00, 07]</td>
+			<th>无参</th>
+			<td>操作码</td>
+			<td colspan="5">▲</td>
+		</tr>
+		<tr>
+			<td>[08, 1F] ∪ [30, 5F]</td>
+			<th>常规</th>
+			<td>操作码</td>
+			<td>
+				操作数
+				<table border="2" cellspacing="0" cellpadding="2">
+					<tr>
+						<th>7</th><th>6</th><th>5</th><th>4</th><th>3</th><th>2</th><th>1</th><th>0</th>
+					</tr>
+					<tr>
+						<td colspan="4">目标寄存器</td>
+						<td colspan="4">源寄存器</td>
+					</tr>
+				</table>
+			</td>
+			<td colspan="4">（立即数）</td>
+		</tr>
+		<tr>
+			<td>[20, 2F]</td>
+			<th>移位</th>
+			<td>操作码</td>
+			<td>
+				操作数
+				<table border="2" cellspacing="0" cellpadding="2">
+					<tr>
+						<th>7</th><th>6</th><th>5</th><th>4</th><th>3</th><th>2</th><th>1</th><th>0</th>
+					</tr>
+					<tr>
+						<td colspan="4">目标寄存器</td>
+						<td colspan="4">源寄存器</td>
+					</tr>
+				</table>
+			</td>
+			<td>（立即数）</td>
+			<td colspan="3">▲</td>
+		</tr>
+		<tr>
+			<td>[60, 6F]</td>
+			<th>近跳转</th>
+			<td>操作码</td>
+			<td>偏移量</td>
+			<td colspan="4">▲</td>
+		</tr>
+		<tr>
+			<td>[70, 7F]</td>
+			<th>远跳转</th>
+			<td>操作码</td>
+			<td colspan="4">偏移量</td>
+			<td>▲</td>
+		</tr>
+	</table>
+	<p>跳转类指令的偏移量皆是相对于之后一条指令，故十六进制编码为71 00000000的指令相当于什么都没做，而61 FE则为死循环。</p>
 	<h2>指令集</h2>
 	<table border="2" cellspacing="0" cellpadding="2">
 		<tr>
