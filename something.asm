@@ -1522,6 +1522,25 @@ DEBUG_UTF8_ROUTINE:
 	jnz exit_failure
 	ret
 
+; https://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Approximations_that_depend_on_the_floating_point_representation
+; float sqrt_approx(float z)
+sqrt_approx:
+	; To justify the following code, prove that
+	; ((((val_int / 2^m) - b) / 2) + b) * 2^m = ((val_int - 2^m) / 2) + ((b + 1) / 2) * 2^m)
+	; where b = exponent bias and m = number of mantissa bits.
+	push eax
+	; Subtract 2^m.
+	mov eax, [esp + 8]
+	sub eax, 1 << 23
+	; Divide by 2.
+	sar eax, 1
+	; Add ((b + 1) / 2) * 2^m.
+	add eax, 1 << 29
+	mov [esp], eax
+	fld dword [esp]
+	pop eax
+	ret 4
+
 ; https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/q_math.c#L552-L572
 ; float Q_rsqrt(float x)
 invsqrt:
@@ -2036,13 +2055,38 @@ vm:
 	test ecx, ebx
 	cmovs edx, eax
 
-	; Load instructions.
-	xor ebx, 0x48
+	; Store instructions.
+	xor ebx, 0x4c
+	movzx ecx, bh
+	shr ecx, 4
+	cmp ecx, 2
+	sete cl
+	cmove eax, [esi]
+	lea esi, [esi + ecx * 4]
+	; What need achieving here is something like CMOVE [EDI + 68 + EAX], EDX; however, x86 has no conditional move instruction in this form. If the instruction is not in fact a store, direct the memory write to some scratch registers.
+	lea ecx, [ecx * 4 - 68]
 	test bl, 0xfc
-	cmovz edx, [edi + 68 + edx]
+	cmovnz eax, ecx
+	mov ecx, [edi + 68 + eax]
+	mov cl, dl
+	cmp bl, 0x01
+	cmove cx, dx
+	cmp bl, 0x02
+	cmove ecx, edx
+	mov [edi + 68 + eax], ecx
+
+	; All other instructions do not rely on values the destination register initially contains.
+	; EAX = scratch register
+
+	; Load instructions.
+	xor ebx, 0x04
+	; Though x86 has conditonal move instructions that look like conditional loads, they load unconditionally internally and may cause segmentation faults.
+	test bl, 0xfc
+	mov ebp, edx
+	cmovnz ebp, ecx
+	cmovz edx, [edi + 68 + ebp]
 	xor ebp, ebp
 	inc ebp
-	xor ecx, ecx
 	mov cl, bl
 	mov ch, 1
 	shl ch, cl
@@ -2055,9 +2099,6 @@ vm:
 	test bl, 0xfc
 	cmovz edx, ebp
 	xor ebx, 0x48
-
-	; All other instructions do not rely on values the destination register initially contains.
-	; EAX = scratch register
 
 	; Reverse bytes instruction.
 	mov eax, edx
@@ -2090,7 +2131,7 @@ vm:
 	lea eax, [eax + ecx * 2]
 	cmp bl, 0x0c
 	cmove edx, eax
-	; Count set bits instruction.
+	; Count bits set instruction.
 	mov eax, edx
 	shr eax, 1
 	and eax, ebp
@@ -2125,6 +2166,19 @@ vm:
 	cmove edx, eax
 	cmovne ecx, [edi + 64]
 	mov [edi + 64], ecx
+
+	; Count trailing zeros instruction.
+	xor ebp, ebp
+	or ebp, 32
+	bsf ecx, edx
+	cmovz ecx, ebp
+	cmp bl, 0x0f
+	cmove edx, ecx
+	; Count leading zeros instruction.
+	bsr ecx, edx
+	cmovz ecx, ebp
+	cmp bl, 0x0e
+	cmove edx, ecx
 
 	; Set flags.
 	sets al
