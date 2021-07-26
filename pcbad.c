@@ -25,6 +25,7 @@ struct gbr_file {
 	bool arced, painting;
 	double complex current_z;
 	double complex path_start_z;
+	double complex translation; // for gbr_begin_repeat
 };
 
 const double degree = 0.017453292519943295; // π / 180
@@ -79,6 +80,7 @@ void gbr_begin_file(struct gbr_file *this, const char *filename, const char *fil
 	this->current_g = INT_MIN;
 	this->set_attributes = 0;
 	this->current_z = this->path_start_z = CMPLX(NAN, NAN);
+	this->translation = CMPLX(-0.0, -0.0);
 }
 
 void gbr_end_file(struct gbr_file *this) {
@@ -148,10 +150,10 @@ static bool gbr_xy(struct gbr_file *this, double complex z) {
 	assert(isfinite(creal(z)) && isfinite(cimag(z)));
 	if (this->current_z == z) return false;
 	if (creal(this->current_z) != creal(z)) {
-		fprintf(this->fp, "X%.0f", creal(z) * 1e6);
+		fprintf(this->fp, "X%.0f", creal(z + this->translation) * 1e6);
 	}
 	if (cimag(this->current_z) != cimag(z)) {
-		fprintf(this->fp, "Y%.0f", cimag(z) * 1e6);
+		fprintf(this->fp, "Y%.0f", cimag(z + this->translation) * 1e6);
 	}
 	this->current_z = z;
 	return true;
@@ -227,6 +229,24 @@ void gbr_close_path(struct gbr_file *this) {
 void gbr_draw_dot(struct gbr_file *this, double complex z) {
 	gbr_xy(this, z);
 	fputs("D03*\n", this->fp);
+}
+
+void gbr_begin_repeat(struct gbr_file *this, int nx, int ny, double complex pitch) {
+	assert(!this->translation && signbit(creal(this->translation)) && signbit(cimag(this->translation)));
+	assert(nx > 0 && ny > 0 && (nx > 1 || ny > 1));
+	assert(isfinite(creal(pitch)) && isfinite(cimag(pitch)) && pitch);
+	fprintf(this->fp, "%%SRX%dY%dI%fJ%f*%%\n", nx, ny, fabs(creal(pitch)), fabs(cimag(pitch)));
+	this->translation = 0;
+	if (creal(pitch) < 0) this->translation += (nx - 1) * creal(pitch);
+	if (cimag(pitch) < 0) this->translation += (ny - 1) * cimag(pitch) * I;
+	this->current_z = this->path_start_z = CMPLX(NAN, NAN);
+}
+
+void gbr_end_repeat(struct gbr_file *this) {
+	assert(this->translation || !signbit(creal(this->translation)) || !signbit(cimag(this->translation)));
+	fprintf(this->fp, "%%SR*%%\n");
+	this->translation = CMPLX(-0.0, -0.0);
+	this->current_z = this->path_start_z = CMPLX(NAN, NAN);
 }
 
 struct xnc_file {
@@ -336,6 +356,18 @@ void xnc_rout(struct xnc_file *this, double complex z0, double complex z1) {
 	fputs("\nM15\nG01", this->fp);
 	xnc_xy(this, z1);
 	fputs("\nM16\n", this->fp);
+}
+
+void xnc_drill_evenly_spaced(struct xnc_file *this, double complex z0, double complex z1, int n) {
+	if (z0 == z1) {
+		xnc_drill(this, z0);
+		return;
+	}
+	assert(n >= 2);
+	n--;
+	for (int i = 0; i <= n; i++) {
+		xnc_drill(this, (1 - (double) i / n) * z0 + (double) i / n * z1);
+	}
 }
 
 int main() {
