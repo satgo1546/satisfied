@@ -10,9 +10,6 @@
 #include <time.h>
 #include <complex.h>
 
-// mf \tracingchoices:=tracingonline:=1;path p;
-
-
 double reduce_angle(double x) {
 	if (fabs(x) > acos(-1)) x -= 4 * ((x > 0) - .5) * acos(-1);
 	return x;
@@ -38,18 +35,18 @@ double complex cpolar(double magnitude, double phase) {
 struct mp_knot {
 	double complex coord;
 	struct {
-		// Non-explicit control points will be chosen based on “tension” parameters in the left tension and right tension fields. The ‘atleast’ option is represented by negative tension values.
+		// Non-explicit control points will be chosen based on “tension” parameters in the left.tension and right.tension fields. The “atleast” option is represented by negative tension values.
 		enum mp_knot_type {
 			mp_endpoint = 0,
-			// If mp_right_type = mp_explicit, the Bézier control point for leaving this knot has already been computed; it is in the mp_right_x and mp_right_y fields.
+			// If right.type = mp_explicit, the Bézier control point for leaving this knot has already been computed; it is in the mp_right_x and mp_right_y fields.
 			mp_explicit,
-			// If mp_right_type = mp_given, the curve should leave the knot in a nonzero direction stored as an angle in right given.
+			// If right.type = mp_given, the curve should leave the knot in a nonzero direction stored as an angle in right given.
 			mp_given,
-			// If mp_right_type = mp_curl, the curve should leave the knot in a direction depending on the angle at which it enters the next knot and on the curl parameter stored in right curl.
+			// If right.type = mp_curl, the curve should leave the knot in a direction depending on the angle at which it enters the next knot and on the curl parameter stored in right curl.
 			mp_curl,
-			// If mp_right_type = mp_open, the curve should leave the knot in the same direction it entered; METAPOST will figure out a suitable direction.
+			// If right.type = mp_open, the curve should leave the knot in the same direction it entered; METAPOST will figure out a suitable direction.
 			mp_open,
-			mp_end_cycle,
+			mp_end_cycle, // for internal use
 		} type;
 		static_assert(mp_given > mp_explicit, "enum mp_knot_type");
 		static_assert(mp_curl > mp_explicit, "enum mp_knot_type");
@@ -77,7 +74,7 @@ void mp_print_path(struct mp_knot *head) {
 		switch (p->right.type) {
 		case mp_endpoint:
 			assert(p->left.type != mp_open);
-			if (q->left.type != mp_endpoint || q != head) q = NULL;
+			assert(q == head && q->left.type == mp_endpoint);
 			goto done;
 		case mp_explicit:
 			printf(" .. controls (%g, %g) and (%g, %g)", creal(p->right.coord), cimag(p->right.coord), creal(q->left.coord), cimag(q->left.coord));
@@ -114,8 +111,7 @@ void mp_print_path(struct mp_knot *head) {
 	putchar('\n');
 }
 
-// This is METAPOST's magic fudge factor for placing the first control point
-// of a curve that starts at an angle θ and ends at an angle φ from the straight path.
+// This is METAPOST's magic fudge factor for placing the first control point of a curve that starts at an angle θ and ends at an angle φ from the straight path.
 // It's f(θ, φ) / (3τ) with f(θ, φ) defined on p. 131, The METAFONTbook.
 double mp_velocity(double st, double ct, double sf, double cf, double t) {
 	assert(t >= .75);
@@ -138,11 +134,11 @@ double mp_curl_ratio(double gamma, double a, double b) {
 }
 
 static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, double phi, double complex delta_k) {
-	// velocities, divided by thrice the tension
 	double complex eit = cexp(theta * I), eif = cexp(phi * I);
+	// velocities, divided by thrice the tension
 	double rr = mp_velocity(cimag(eit), creal(eit), cimag(eif), creal(eif), fabs(p->right.tension));
 	double ss = mp_velocity(cimag(eif), creal(eif), cimag(eit), creal(eit), fabs(q->left.tension));
-	// Decrease the velocities, if necessary, to stay inside the bounding triangle
+	// Decrease the velocities, if necessary, to stay inside the bounding triangle.
 	// The boundedness conditions
 	//   rr ≤ sin(φ)/sin(θ + φ)  and  ss ≤ sin(θ)/sin(θ + φ)
 	// are to be enforced if sin(θ), sin(φ), and sin(θ + φ) all have the same sign.
@@ -165,7 +161,7 @@ static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, 
 // Search for John Hobby in the METAFONT source document for more details of the mathematics involved.
 static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, int n) {
 	struct mp_knot *r = NULL, *s = p, *t = p->next;
-	// Calculate the turning angles ψₖ and the distances
+	// Calculate the turning angles ψₖ and the distances.
 	double complex delta[n + 1]; // knot differences
 	double psi[n + 2]; // turning angles
 	psi[n] = 0;
@@ -176,7 +172,7 @@ static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, i
 	}
 	psi[n + 1] = psi[1];
 	s = p;
-	// Get the linear equations started; or return with the control points in place, if linear equations needn't be solved
+	// Get the linear equations started; or return with the control points in place, if linear equations needn't be solved.
 	double theta[n + 1], u[n], v[n + 1], w[n + 1];
 	switch (s->right.type) {
 	case mp_given:
@@ -219,7 +215,7 @@ static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, i
 	case mp_end_cycle:
 	case mp_open:
 		{
-			// Set up equation to match mock curvatures at zₖ
+			// Set up equation to match mock curvatures at zₖ.
 			double a = 1 / (3 * fabs(r->right.tension) - 1);
 			double b = 1 / (3 * fabs(t->left.tension) - 1);
 			double c = 1 - u[k - 1] * a;
@@ -240,17 +236,17 @@ static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, i
 		}
 		break;
 	case mp_curl:
-		// Set up equation for a curl at θₙ
+		// Set up equation for a curl at θₙ.
 		theta[n] = -v[n - 1] / (1 / mp_curl_ratio(s->left.parameter, fabs(s->left.tension), fabs(r->right.tension)) - u[n - 1]);
 		break;
 	case mp_given:
-		// Calculate the given value of θₙ
+		// Calculate the given value of θₙ.
 		theta[n] = reduce_angle(s->left.parameter - carg(delta[n - 1]));
 		break;
 	default:
 		abort();
 	}
-	// adjust θₙ to equal θ₀ if a cycle has ended
+	// Adjust θₙ to equal θ₀ if a cycle has ended.
 	if (p->left.type == mp_end_cycle) {
 		double a = 0, b = 1;
 		for (int k = n - 1; k >= 1; k--) {
@@ -262,7 +258,7 @@ static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, i
 			v[k] += v[0] * w[k];
 		}
 	}
-	// Finish choosing angles and assigning control points
+	// Finish choosing angles and assigning control points.
 	for (int k = n - 1; k >= 0; k--) {
 		theta[k] = v[k] - theta[k + 1] * u[k];
 	}
@@ -273,16 +269,20 @@ static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, i
 	}
 }
 
-void mp_make_choices(struct mp_knot *knots) {
-	// the first breakpoint, whose left and right types are neither mp_open
-	struct mp_knot *h;
-	// consecutive breakpoints being processed
-	struct mp_knot *p, *q;
-
-	// join equal consecutive knots with an explicit “curve” whose control points are identical to the knots
-	p = knots;
+void mp_make_choices(struct mp_knot *head) {
+	struct mp_knot *p = head;
 	do {
-		q = p->next;
+		struct mp_knot *q = p->next;
+		// Knot types must satisfy certain restrictions because of the form of METAPOST's path syntax:
+		// • mp_open never appears in the same node together with mp_endpoint, mp_given, or mp_curl.
+		// • node->right.type is mp_explicit if and only if node->next->left.type is mp_explicit.
+		// • mp_endpoint occur only at the ends.
+		assert(p->left.type != mp_open || p->right.type == mp_open || p->right.type == mp_explicit);
+		assert(p->right.type != mp_open || p->left.type == mp_open || p->left.type == mp_explicit);
+		assert((p->right.type == mp_explicit) == (q->left.type == mp_explicit));
+		assert(p == head || p->left.type != mp_endpoint);
+		assert(q == head || p->right.type != mp_endpoint);
+		// Join equal consecutive knots with an explicit “curve” whose control points are identical to the knots.
 		if (p->coord == q->coord && p->right.type > mp_explicit) {
 			p->right.type = mp_explicit;
 			p->right.coord = p->coord;
@@ -298,14 +298,14 @@ void mp_make_choices(struct mp_knot *knots) {
 			}
 		}
 		p = q;
-	} while (p != knots);
+	} while (p != head);
 
-	// Find the first breakpoint, h
-	h = knots;
+	// Find the first breakpoint, whose left and right types are neither mp_open.
+	struct mp_knot *h = head;
 	while (h->left.type == mp_open && h->right.type == mp_open) {
 		h = h->next;
-		// temporarily change left.type of the first node to mp_end_cycle if there are no breakpoints
-		if (h == knots) {
+		// Temporarily change head->left.type to mp_end_cycle if there are no breakpoints.
+		if (h == head) {
 			h->left.type = mp_end_cycle;
 			break;
 		}
@@ -314,24 +314,24 @@ void mp_make_choices(struct mp_knot *knots) {
 	p = h;
 	do {
 		// Fill in the control points between p and the next breakpoint
-		q = p->next;
+		struct mp_knot *q = p->next;
 		if (p->right.type > mp_explicit) {
 			while (q->left.type == mp_open && q->right.type == mp_open) q = q->next;
-			// count the knots
+			// Count the knots.
 			int n = 0; // length of the path
 			struct mp_knot *s = p;
 			do {
 				n++;
 				s = s->next;
 			} while (s != q);
-			// Remove open types at the breakpoints
+			// Remove mp_open types at the breakpoints.
 			if (p->right.type == mp_open && p->left.type == mp_explicit) {
 				if (p->coord == p->left.coord) {
 					// If the velocity coming into this knot is zero, the mp_open type is converted to a mp_curl, since we don't know the incoming direction.
 					p->right.type = mp_curl;
 					p->right.parameter = 1;
 				} else {
-					// the mp_open type is converted to mp_given
+					// The mp_open type is converted to mp_given.
 					p->right.type = mp_given;
 					p->right.parameter = carg(p->coord - p->left.coord);
 				}
@@ -347,18 +347,22 @@ void mp_make_choices(struct mp_knot *knots) {
 			}
 			mp_solve_choices(p, q, n);
 		} else if (p->right.type == mp_endpoint) {
-			// Give reasonable values for the unused control points between p and q
+			// Give reasonable values for the unused control points between p and q.
 			// This step makes it possible to transform an explicitly computed path without checking the mp_left_type and mp_right_type fields.
 			p->right.coord = p->coord;
 			q->left.coord = q->coord;
 		}
-		// advance p to the next breakpoint
+		// Advance p to the next breakpoint.
 		p = q;
 	} while (p != h);
 }
 
 
 int main() {
+	// To see how METAFONT solves a path, run
+	//   mf \\tracingchoices:=tracingonline:=1;path p;
+	// and say “p := ⟨path expression⟩”.
+	// MetaPost has some bugs printing numbers in paths as of 2.01.
 	#define test(control, x, y) \
 	if (cabs((control).coord - CMPLX(x, y)) > 1e-2) \
 	printf("Test failure on line %d: expected (%g, %g), but got (%g, %g)\n", \
@@ -625,7 +629,8 @@ int main() {
 	struct mp_knot z24 = {
 		.coord = 1.3+3.7*I,
 		.left.type = mp_endpoint,
-		.right.type = mp_open,
+		.right.type = mp_curl,
+		.right.parameter = 1,
 		.right.tension = 1,
 	};
 	struct mp_knot z25 = {
@@ -637,7 +642,8 @@ int main() {
 	};
 	struct mp_knot z26 = {
 		.coord = 1.3+3.7*I,
-		.left.type = mp_open,
+		.left.type = mp_curl,
+		.left.parameter = 1,
 		.left.tension = 1,
 		.right.type = mp_endpoint,
 	};
