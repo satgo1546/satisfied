@@ -25,6 +25,10 @@ double complex cpolar(double magnitude, double phase) {
 	return CMPLX(magnitude * cos(phase), magnitude * sin(phase));
 }
 
+double complex mp_trans(double complex z, double complex tx, double complex ty, double complex ta) {
+	return creal(z) * tx + cimag(z) * ty + ta;
+}
+
 // Adobe Photoshop: anchor point
 // https://helpx.adobe.com/photoshop/using/editing-paths.html
 // Microsoft Windows: path point
@@ -62,7 +66,6 @@ struct mp_knot {
 	} left, right;
 	struct mp_knot *next;
 };
-
 
 void mp_print_path(struct mp_knot *head) {
 	struct mp_knot *p, *q;
@@ -109,6 +112,19 @@ void mp_print_path(struct mp_knot *head) {
 	} while (p != head);
 	if (head->left.type != mp_endpoint) printf("cycle");
 	putchar('\n');
+}
+
+void mp_trans_path(struct mp_knot *head, double complex tx, double complex ty, double complex ta) {
+	struct mp_knot *p = head;
+	do {
+		if (p->left.type != mp_endpoint) {
+			p->left.coord = mp_trans(p->left.coord, tx, ty, ta);
+		}
+		p->coord = mp_trans(p->coord, tx, ty, ta);
+		if (p->right.type != mp_endpoint) {
+			p->right.coord = mp_trans(p->right.coord, tx, ty, ta);
+		}
+	} while (p != head);
 }
 
 // This is METAPOST's magic fudge factor for placing the first control point of a curve that starts at an angle θ and ends at an angle φ from the straight path.
