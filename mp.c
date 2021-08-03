@@ -150,7 +150,8 @@ static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, 
 	// are to be enforced if sin(θ), sin(φ), and sin(θ + φ) all have the same sign.
 	// Otherwise there is no “bounding triangle”.
 	if ((p->right.tension < 0 || q->left.tension < 0) && cimag(eit) * cimag(eif) >= 0) {
-		double sine = cimag(eit * eif); // sin(θ + φ)
+		// sin(θ + φ) × what's this “safety factor”?
+		double sine = cimag(eit * eif) * 1.000244140625;
 		if (cimag(eit) < 0 || cimag(eif) < 0) sine = -sine;
 		if (sine > 0) {
 			if (p->right.tension < 0) rr = fmin(rr, fabs(cimag(eif) / sine));
@@ -402,7 +403,7 @@ printf("\n\n\n!!!@@@@@%d\n\n\n\n", __LINE__);
 				s = s->next;
 				// set n to the length of the path
 				if (s == q) n = k;
-			} while (k < n || s->left.type == mp_end_cycle);
+			} while (k < n);
 			psi[k] = k == n ? 0 : psi[1];
 			// Remove open types at the breakpoints
 			if (p->right.type == mp_open && p->left.type == mp_explicit) {
@@ -437,6 +438,7 @@ printf("\n\n\n!!!@@@@@%d\n\n\n\n", __LINE__);
 	} while (p != h);
 }
 
+
 int main() {
 	// (0, 0)
 	// .. (2, 20){curl 1}
@@ -444,18 +446,6 @@ int main() {
 	// and (9, 4.5) .. (3, 10) .. tension 3
 	// and atleast 4 .. (1, 14){2, 0}
 	// .. {0, 1}(5, -4)
-	//
-	// (0, 0)
-	// ..controls (0.66667, 6.66667) and (1.33333, 13.33333)
-	// ..(2, 20)
-	// ..controls (4.66667, 15) and (7.33333, 10)
-	// ..(10, 5)
-	// ..controls (2, 2) and (9, 4.5)
-	// ..(3, 10)
-	// ..controls (2.34547, 10.59998) and (0.48712, 14)
-	// ..(1, 14)
-	// ..controls (13.40117, 14) and (5, -35.58354)
-	// ..(5, -4)
 	struct mp_knot z1 =
 	{
 		.coord=0,
@@ -510,7 +500,6 @@ int main() {
 			.right.type = mp_endpoint,
 		},
 		// (0, 0){dir 60°} ... {dir -10°}(400, 0)
-		// (0, 0) .. controls (36.94897, 63.99768) and (248.95918, 26.63225) .. (400, 0)
 		z7 =
 		{
 			.coord = 0,
@@ -527,9 +516,6 @@ int main() {
 			.right.type = mp_endpoint,
 		},
 		// (0, 0) .. (10, 10) .. (10, -5) .. cycle
-		// (0,0)..controls (-1.8685,6.35925) and (4.02429,12.14362)
-		// ..(10,10)..controls (16.85191,7.54208) and (16.9642,-2.22969)
-		// ..(10,-5)..controls (5.87875,-6.6394) and (1.26079,-4.29094)..cycle
 		z9 =
 		{
 			.coord = 0,
@@ -554,13 +540,9 @@ int main() {
 			.right.type = mp_open,
 			.right.tension = 1,
 		},
-		// (1,1)..(4,5)..tension atleast 1..{curl 2}(1,4)..(19,-1){-1,-2}..tension 3 and 4..(9,-8)..controls (4,5) and (5,4)..(1,0)
-		// (1,1)..controls (3.51616,-0.21094) and (5.86702,2.92355)
-		// ..(4,5)..controls (2.73756,6.40405) and (0.7107,5.41827)
-		// ..(1,4)..controls (-5.32942,20.68242) and (29.16524,19.33046)
-		// ..(19,-1)..controls (17.90521,-3.18956) and (9.42474,-9.10431)
-		// ..(9,-8)..controls (4,5) and (5,4)
-		// ..(1,0)
+		// (1, 1) .. (4, 5) .. tension atleast 1 .. {curl 2}(1, 4)
+		// .. (19, -1){-1, -2} .. tension 3 and 4 .. (9, -8)
+		// .. controls (4, 5) and (5, 4) .. (1, 0)
 		z12 =
 		{
 			.coord = 1+1*I,
@@ -612,12 +594,8 @@ int main() {
 			.left.coord = 5+4*I,
 			.right.type = mp_endpoint,
 		},
-		// (0,0)..controls (0,0.5) and (0,1)..(0,1)..(1,1)..controls (1,1) and (1,0.5)..(1,0){dir 45}..(2,0)
-		// (0,0)..controls (0,0.5) and (0,1)
-		// ..(0,1)..controls (0.33333,1) and (0.66667,1)
-		// ..(1,1)..controls (1,1) and (1,0.5)
-		// ..(1,0)..controls (1.27614,0.27614) and (1.72386,0.27614)
-		// ..(2,0)
+		// (0, 0) .. controls (0, 0.5) and (0, 1) .. (0, 1)
+		// .. (1, 1) .. controls (1, 1) and (1, 0.5) .. (1, 0){dir 45°} .. (2, 0)
 		z18 =
 		{
 			.coord = 0,
@@ -664,25 +642,67 @@ int main() {
 	z4.next = &z5;
 	z5.next = &z6;
 	z6.next = &z1;
-	mp_print_path(&z1);mp_make_choices(&z1);mp_print_path(&z1);
+	mp_make_choices(&z1);
+	#define test(control, x, y) \
+		if (cabs((control).coord - CMPLX(x, y)) > 1e-2) \
+			printf("Test failure on line %d: expected (%g, %g), but got (%g, %g)\n", \
+				__LINE__, (double) (x), (double) (y), \
+				creal((control).coord), cimag((control).coord))
+	test(z1.right, 0.66667, 6.66667);
+	test(z2.left, 1.33333, 13.33333);
+	test(z2.right, 4.66667, 15);
+	test(z3.left, 7.33333, 10);
+	test(z3.right, 2, 2);
+	test(z4.left, 9, 4.5);
+	test(z4.right, 2.34547, 10.59998);
+	test(z5.left, 0.48712, 14);
+	test(z5.right, 13.40117, 14);
+	test(z6.left, 5, -35.58354);
 	z7.next = &z8;
 	z8.next = &z7;
-	mp_print_path(&z7);mp_make_choices(&z7);mp_print_path(&z7);
+	mp_make_choices(&z7);
+	test(z7.right, 36.94897, 63.99768);
+	test(z8.left, 248.95918, 26.63225);
 	z9.next = &z10;
 	z10.next = &z11;
 	z11.next = &z9;
-	mp_print_path(&z9);mp_make_choices(&z9);mp_print_path(&z9);
+	mp_make_choices(&z9);
+	test(z9.right, -1.8685, 6.35925);
+	test(z10.left, 4.02429, 12.14362);
+	test(z10.right, 16.85191, 7.54208);
+	test(z11.left, 16.9642, -2.22969);
+	test(z11.right, 5.87875, -6.6394);
+	test(z9.left, 1.26079, -4.29094);
 	z12.next = &z13;
 	z13.next = &z14;
 	z14.next = &z15;
 	z15.next = &z16;
 	z16.next = &z17;
 	z17.next = &z12;
-	mp_print_path(&z12);mp_make_choices(&z12);mp_print_path(&z12);
+	mp_make_choices(&z12);
+	test(z12.right, 3.51616, -0.21094);
+	test(z13.left, 5.86702, 2.92355);
+	test(z13.right, 2.73756, 6.40405);
+	test(z14.left, 0.7107, 5.41827);
+	test(z14.right, -5.32942, 20.68242);
+	test(z15.left, 29.16524, 19.33046);
+	test(z15.right, 17.90521, -3.18956);
+	test(z16.left, 9.42474, -9.10431);
+	test(z16.right, 4, 5);
+	test(z17.left, 5, 4);
 	z18.next = &z19;
 	z19.next = &z20;
 	z20.next = &z21;
 	z21.next = &z22;
 	z22.next = &z18;
-	mp_print_path(&z18);mp_make_choices(&z18);mp_print_path(&z18);
+	mp_make_choices(&z18);
+	test(z18.right, 0, 0.5);
+	test(z19.left, 0, 1);
+	test(z19.right, 0.33333, 1);
+	test(z20.left, 0.66667, 1);
+	test(z20.right, 1, 1);
+	test(z21.left, 1, 0.5);
+	test(z21.right, 1.27614, 0.27614);
+	test(z22.left, 1.72386, 0.27614);
+	#undef test
 }
