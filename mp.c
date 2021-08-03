@@ -12,8 +12,6 @@
 
 // mf \tracingchoices:=tracingonline:=1;path p;
 
-static double complex delta[1000]; // knot differences
-static double psi[1000]; // turning angles
 
 double reduce_angle(double x) {
 	if (fabs(x) > acos(-1)) x -= 4 * ((x > 0) - .5) * acos(-1);
@@ -139,7 +137,7 @@ double mp_curl_ratio(double gamma, double a, double b) {
 	return fmin(4, (gamma * (3 - a) + b) / (gamma * a + 3 - b));
 }
 
-static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, double phi, int k) {
+static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, double phi, double complex delta_k) {
 	// velocities, divided by thrice the tension
 	double complex eit = cexp(theta * I), eif = cexp(phi * I);
 	double rr = mp_velocity(cimag(eit), creal(eit), cimag(eif), creal(eif), fabs(p->right.tension));
@@ -159,97 +157,37 @@ static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, 
 		}
 	}
 	q->left.type = mp_explicit;
-	q->left.coord = q->coord - delta[k] * conj(eif) * ss;
+	q->left.coord = q->coord - delta_k * conj(eif) * ss;
 	p->right.type = mp_explicit;
-	p->right.coord = p->coord + delta[k] * eit * rr;
+	p->right.coord = p->coord + delta_k * eit * rr;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Search for John Hobby in the METAFONT source document for more details of the mathematics involved.
-static void mp_solve_choices(struct mp_knot *p, struct mp_knot *q, int n) {
+static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, int n) {
 	struct mp_knot *r = NULL, *s = p, *t = p->next;
-	double aa, bb, cc, dd, ee, ff;
-	double theta[n + 1], uu[n], vv[n + 1], ww[n + 1];
+	// Calculate the turning angles ψₖ and the distances
+	double complex delta[n + 1]; // knot differences
+	double psi[n + 2]; // turning angles
+	psi[n] = 0;
+	for (int k = 0; k < n + (p->left.type == mp_end_cycle); k++) {
+		delta[k] = s->next->coord - s->coord;
+		if (k) psi[k] = carg(conj(delta[k - 1]) * delta[k]);
+		s = s->next;
+	}
+	psi[n + 1] = psi[1];
+	s = p;
 	// Get the linear equations started; or return with the control points in place, if linear equations needn't be solved
+	double theta[n + 1], u[n], v[n + 1], w[n + 1];
 	switch (s->right.type) {
 	case mp_given:
 		if (t->left.type == mp_given) {
-			aa = carg(delta[0]);
-			mp_set_controls(p, q, p->right.parameter - aa, aa - q->left.parameter, 0);
+			double aa = carg(delta[0]);
+			mp_set_controls(p, q, p->right.parameter - aa, aa - q->left.parameter, delta[0]);
 			return;
 		} else {
-			vv[0] = reduce_angle(s->right.parameter - carg(delta[0]));
-			uu[0] = 0;
-			ww[0] = 0;
+			v[0] = reduce_angle(s->right.parameter - carg(delta[0]));
+			u[0] = 0;
+			w[0] = 0;
 		}
 		break;
 	case mp_curl:
@@ -260,16 +198,15 @@ static void mp_solve_choices(struct mp_knot *p, struct mp_knot *q, int n) {
 			q->left.coord = q->coord - delta[0] / (3 * fabs(q->left.tension));
 			return;
 		} else {
-			cc = s->right.parameter;
-			uu[0] = mp_curl_ratio(cc, fabs(s->right.tension), fabs(t->left.tension));
-			vv[0] = -psi[1] * uu[0];
-			ww[0] = 0;
+			u[0] = mp_curl_ratio(s->right.parameter, fabs(s->right.tension), fabs(t->left.tension));
+			v[0] = -psi[1] * u[0];
+			w[0] = 0;
 		}
 		break;
 	case mp_open:
-		uu[0] = 0;
-		vv[0] = 0;
-		ww[0] = 1;
+		u[0] = 0;
+		v[0] = 0;
+		w[0] = 1;
 		break;
 	default:
 		abort();
@@ -278,72 +215,62 @@ static void mp_solve_choices(struct mp_knot *p, struct mp_knot *q, int n) {
 	s = t;
 	t = s->next;
 
-	for (int k = 1; ; k++, r = s, s = t, t = s->next) switch (s->left.type) {
+	for (int k = 1; k <= n; k++, r = s, s = t, t = s->next) switch (s->left.type) {
 	case mp_end_cycle:
 	case mp_open:
-		// Set up equation to match mock curvatures at zₖ
-		aa = 1 / (3 * fabs(r->right.tension) - 1);
-		bb = 1 / (3 * fabs(t->left.tension) - 1);
-		cc = 1 - uu[k - 1] * aa;
-		dd = cabs(delta[k]) * (3 - 1 / fabs(r->right.tension));
-		ee = cabs(delta[k - 1]) * (3 - 1 / fabs(t->left.tension));
-		ff = fabs(s->left.tension) / fabs(s->right.tension);
-		ff = ee / (ee + cc * dd * ff * ff);
+		{
+			// Set up equation to match mock curvatures at zₖ
+			double a = 1 / (3 * fabs(r->right.tension) - 1);
+			double b = 1 / (3 * fabs(t->left.tension) - 1);
+			double c = 1 - u[k - 1] * a;
+			double d = cabs(delta[k]) * (3 - 1 / fabs(r->right.tension));
+			double e = cabs(delta[k - 1]) * (3 - 1 / fabs(t->left.tension));
+			double f = fabs(s->left.tension / s->right.tension);
+			f = e / (e + c * d * f * f);
 
-		uu[k] = ff * bb;
-		if (r->right.type == mp_curl) {
-			ww[k] = 0;
-			vv[k] = -psi[k + 1] * uu[k] - psi[1] * (1 - ff);
-		} else {
-			ff = (1 - ff) / cc;
-			vv[k] = -psi[k + 1] * uu[k] - psi[k] * ff - vv[k - 1] * ff * aa;
-			ww[k] = -ww[k - 1] * ff * aa;
-		}
-
-		// adjust θₙ to equal θ₀ if a cycle has ended
-		if (s->left.type == mp_end_cycle) {
-			aa = 0;
-			bb = 1;
-			do {
-				k--;
-				if (!k) k = n;
-				aa = vv[k] - aa * uu[k];
-				bb = ww[k] - bb * uu[k];
-			} while (k != n);
-			aa /= 1 - bb;
-			theta[n] = vv[0] = aa;
-			for (int k = 1; k < n; k++) {
-				vv[k] += aa * ww[k];
+			u[k] = f * b;
+			if (r->right.type == mp_curl) {
+				v[k] = -psi[k + 1] * u[k] - psi[1] * (1 - f);
+				w[k] = 0;
+			} else {
+				f = (1 - f) / c;
+				v[k] = -psi[k + 1] * u[k] - (psi[k] + v[k - 1] * a) * f;
+				w[k] = -w[k - 1] * f * a;
 			}
-			goto finish;
 		}
 		break;
 	case mp_curl:
 		// Set up equation for a curl at θₙ
-		cc = s->left.parameter;
-		ff = mp_curl_ratio(cc, fabs(s->left.tension), fabs(r->right.tension));
-		theta[n] = -vv[n - 1] * ff / (1 - ff * uu[n - 1]);
-		goto finish;
+		theta[n] = -v[n - 1] / (1 / mp_curl_ratio(s->left.parameter, fabs(s->left.tension), fabs(r->right.tension)) - u[n - 1]);
+		break;
 	case mp_given:
 		// Calculate the given value of θₙ
 		theta[n] = reduce_angle(s->left.parameter - carg(delta[n - 1]));
-		goto finish;
+		break;
 	default:
 		abort();
 	}
-finish:
+	// adjust θₙ to equal θ₀ if a cycle has ended
+	if (p->left.type == mp_end_cycle) {
+		double a = 0, b = 1;
+		for (int k = n - 1; k >= 1; k--) {
+			a = v[k] - a * u[k];
+			b = w[k] - b * u[k];
+		}
+		theta[n] = v[0] = (v[n] - a * u[n]) / (b * u[n] - w[n] + 1);
+		for (int k = 1; k < n; k++) {
+			v[k] += v[0] * w[k];
+		}
+	}
 	// Finish choosing angles and assigning control points
 	for (int k = n - 1; k >= 0; k--) {
-		theta[k] = vv[k] - theta[k + 1] * uu[k];
+		theta[k] = v[k] - theta[k + 1] * u[k];
 	}
 	s = p;
-	int k = 0;
-	do {
-		t = s->next;
-		mp_set_controls(s, t, theta[k], -psi[k + 1] - theta[k + 1], k);
-		k++;
-		s = t;
-	} while (k != n);
+	for (int k = 0; k < n; k++) {
+		mp_set_controls(s, s->next, theta[k], -psi[k + 1] - theta[k + 1], delta[k]);
+		s = s->next;
+	}
 }
 
 void mp_make_choices(struct mp_knot *knots) {
@@ -352,23 +279,20 @@ void mp_make_choices(struct mp_knot *knots) {
 	// consecutive breakpoints being processed
 	struct mp_knot *p, *q;
 
-	// If consecutive knots are equal, join them with an explicit “curve” whose control points are identical to the knots.
+	// join equal consecutive knots with an explicit “curve” whose control points are identical to the knots
 	p = knots;
 	do {
 		q = p->next;
 		if (p->coord == q->coord && p->right.type > mp_explicit) {
-printf("\n\n\n!!!@@@@@%d\n\n\n\n", __LINE__);
 			p->right.type = mp_explicit;
 			p->right.coord = p->coord;
 			if (p->left.type == mp_open) {
-printf("\n\n\n!!!@@@@@%d\n\n\n\n", __LINE__);
 				p->left.type = mp_curl;
 				p->left.parameter = 1;
 			}
 			q->left.type = mp_explicit;
 			q->left.coord = p->coord;
 			if (q->right.type == mp_open) {
-printf("\n\n\n!!!@@@@@%d\n\n\n\n", __LINE__);
 				q->right.type = mp_curl;
 				q->right.parameter = 1;
 			}
@@ -393,18 +317,13 @@ printf("\n\n\n!!!@@@@@%d\n\n\n\n", __LINE__);
 		q = p->next;
 		if (p->right.type > mp_explicit) {
 			while (q->left.type == mp_open && q->right.type == mp_open) q = q->next;
-			// Calculate the turning angles ψₖ and the distances
-			int k = 0, n = INT_MAX; // current and final knot numbers
+			// count the knots
+			int n = 0; // length of the path
 			struct mp_knot *s = p;
 			do {
-				delta[k] = s->next->coord - s->coord;
-				if (k) psi[k] = carg(conj(delta[k - 1]) * delta[k]);
-				k++;
+				n++;
 				s = s->next;
-				// set n to the length of the path
-				if (s == q) n = k;
-			} while (k < n);
-			psi[k] = k == n ? 0 : psi[1];
+			} while (s != q);
 			// Remove open types at the breakpoints
 			if (p->right.type == mp_open && p->left.type == mp_explicit) {
 				if (p->coord == p->left.coord) {
@@ -440,202 +359,65 @@ printf("\n\n\n!!!@@@@@%d\n\n\n\n", __LINE__);
 
 
 int main() {
+	#define test(control, x, y) \
+	if (cabs((control).coord - CMPLX(x, y)) > 1e-2) \
+	printf("Test failure on line %d: expected (%g, %g), but got (%g, %g)\n", \
+			__LINE__, (double) (x), (double) (y), \
+			creal((control).coord), cimag((control).coord))
 	// (0, 0)
 	// .. (2, 20){curl 1}
 	// .. {curl 1}(10, 5) .. controls (2, 2)
 	// and (9, 4.5) .. (3, 10) .. tension 3
 	// and atleast 4 .. (1, 14){2, 0}
 	// .. {0, 1}(5, -4)
-	struct mp_knot z1 =
-	{
-		.coord=0,
+	struct mp_knot z1 = {
+		.coord = 0,
 		.left.type = mp_endpoint,
 		.right.type = mp_curl,
 		.right.parameter = 1,
 		.right.tension = 1,
-	},
-		z2 =
-		{
-			.coord = 2+20*I,
-			.left.type = mp_curl,
-			.left.parameter = 1,
-			.left.tension = 1,
-			.right.type = mp_curl,
-			.right.parameter = 1,
-			.right.tension = 1,
-		},
-		z3 =
-		{
-			.coord = 10+5*I,
-			.left.type = mp_curl,
-			.left.parameter = 1,
-			.left.tension = 1,
-			.right.type = mp_explicit,
-			.right.parameter = 2,
-			.right.tension = 2,
-		},
-		z4 =
-		{
-			.coord = 3+10*I,
-			.left.type = mp_explicit,
-			.left.coord = 9+4.5*I,
-			.right.type = mp_open,
-			.right.tension = 3,
-		},
-		z5 =
-		{
-			.coord = 1+14*I,
-			.left.type = mp_given,
-			.left.parameter = 0,
-			.left.tension= -4,
-			.right.type = mp_given,
-			.right.parameter = 0,
-			.right.tension = 1,
-		},
-		z6 = {
-			.coord = 5-4*I,
-			.left.type = mp_given,
-			.left.parameter = asin(1),
-			.left.tension = 1,
-			.right.type = mp_endpoint,
-		},
-		// (0, 0){dir 60°} ... {dir -10°}(400, 0)
-		z7 =
-		{
-			.coord = 0,
-			.left.type = mp_endpoint,
-			.right.type = mp_given,
-			.right.parameter = acos(.5),
-			.right.tension = -1,
-		},
-		z8 = {
-			.coord = 400,
-			.left.type = mp_given,
-			.left.parameter = asin(-1) / 9,
-			.left.tension = -1,
-			.right.type = mp_endpoint,
-		},
-		// (0, 0) .. (10, 10) .. (10, -5) .. cycle
-		z9 =
-		{
-			.coord = 0,
-			.left.type = mp_open,
-			.left.tension = 1,
-			.right.type = mp_open,
-			.right.tension = 1,
-		},
-		z10 =
-		{
-			.coord = 10+10*I,
-			.left.type = mp_open,
-			.left.tension = 1,
-			.right.type = mp_open,
-			.right.tension = 1,
-		},
-		z11 =
-		{
-			.coord = 10-5*I,
-			.left.type = mp_open,
-			.left.tension = 1,
-			.right.type = mp_open,
-			.right.tension = 1,
-		},
-		// (1, 1) .. (4, 5) .. tension atleast 1 .. {curl 2}(1, 4)
-		// .. (19, -1){-1, -2} .. tension 3 and 4 .. (9, -8)
-		// .. controls (4, 5) and (5, 4) .. (1, 0)
-		z12 =
-		{
-			.coord = 1+1*I,
-			.left.type = mp_endpoint,
-			.right.type = mp_curl,
-			.right.parameter = 1,
-			.right.tension = 1,
-		},
-		z13 =
-		{
-			.coord = 4+5*I,
-			.left.type = mp_open,
-			.left.tension = 1,
-			.right.type = mp_open,
-			.right.tension = -1,
-		},
-		z14 =
-		{
-			.coord = 1+4*I,
-			.left.type = mp_curl,
-			.left.parameter = 2,
-			.left.tension = -1,
-			.right.type = mp_curl,
-			.right.parameter = 2,
-			.right.tension = 1,
-		},
-		z15 =
-		{
-			.coord = 19-1*I,
-			.left.type = mp_given,
-			.left.parameter = atan2(-2, -1),
-			.left.tension = 1,
-			.right.type = mp_given,
-			.right.parameter = atan2(-2, -1),
-			.right.tension = 3,
-		},
-		z16 =
-		{
-			.coord = 9-8*I,
-			.left.type = mp_open,
-			.left.tension = 4,
-			.right.type = mp_explicit,
-			.right.coord = 4+5*I,
-		},
-		z17 =
-		{
-			.coord = 1,
-			.left.type = mp_explicit,
-			.left.coord = 5+4*I,
-			.right.type = mp_endpoint,
-		},
-		// (0, 0) .. controls (0, 0.5) and (0, 1) .. (0, 1)
-		// .. (1, 1) .. controls (1, 1) and (1, 0.5) .. (1, 0){dir 45°} .. (2, 0)
-		z18 =
-		{
-			.coord = 0,
-			.left.type = mp_endpoint,
-			.right.type = mp_explicit,
-			.right.coord = .5*I,
-		},
-		z19 =
-		{
-			.coord = I,
-			.left.type = mp_explicit,
-			.left.coord = I,
-			.right.type = mp_open,
-			.right.tension = 1,
-		},
-		z20 =
-		{
-			.coord = 1+I,
-			.left.type = mp_open,
-			.left.tension = 1,
-			.right.type = mp_explicit,
-			.right.coord = 1+I,
-		},
-		z21 =
-		{
-			.coord = 1,
-			.left.type = mp_explicit,
-			.left.coord = 1+.5*I,
-			.right.type = mp_given,
-			.right.parameter = atan(1),
-			.right.tension = 1,
-		},
-		z22 =
-		{
-			.coord = 2,
-			.left.type = mp_curl,
-			.left.parameter = 1,
-			.left.tension = 1,
-			.right.type = mp_endpoint,
-		};
+	};
+	struct mp_knot z2 = {
+		.coord = 2+20*I,
+		.left.type = mp_curl,
+		.left.parameter = 1,
+		.left.tension = 1,
+		.right.type = mp_curl,
+		.right.parameter = 1,
+		.right.tension = 1,
+	};
+	struct mp_knot z3 = {
+		.coord = 10+5*I,
+		.left.type = mp_curl,
+		.left.parameter = 1,
+		.left.tension = 1,
+		.right.type = mp_explicit,
+		.right.parameter = 2,
+		.right.tension = 2,
+	};
+	struct mp_knot z4 = {
+		.coord = 3+10*I,
+		.left.type = mp_explicit,
+		.left.coord = 9+4.5*I,
+		.right.type = mp_open,
+		.right.tension = 3,
+	};
+	struct mp_knot z5 = {
+		.coord = 1+14*I,
+		.left.type = mp_given,
+		.left.parameter = 0,
+		.left.tension= -4,
+		.right.type = mp_given,
+		.right.parameter = 0,
+		.right.tension = 1,
+	};
+	struct mp_knot z6 = {
+		.coord = 5-4*I,
+		.left.type = mp_given,
+		.left.parameter = asin(1),
+		.left.tension = 1,
+		.right.type = mp_endpoint,
+	};
 	z1.next = &z2;
 	z2.next = &z3;
 	z3.next = &z4;
@@ -643,11 +425,6 @@ int main() {
 	z5.next = &z6;
 	z6.next = &z1;
 	mp_make_choices(&z1);
-	#define test(control, x, y) \
-		if (cabs((control).coord - CMPLX(x, y)) > 1e-2) \
-			printf("Test failure on line %d: expected (%g, %g), but got (%g, %g)\n", \
-				__LINE__, (double) (x), (double) (y), \
-				creal((control).coord), cimag((control).coord))
 	test(z1.right, 0.66667, 6.66667);
 	test(z2.left, 1.33333, 13.33333);
 	test(z2.right, 4.66667, 15);
@@ -658,11 +435,50 @@ int main() {
 	test(z5.left, 0.48712, 14);
 	test(z5.right, 13.40117, 14);
 	test(z6.left, 5, -35.58354);
+
+	// (0, 0){dir 60°} .. {dir -10°}(400, 0)
+	struct mp_knot z7 = {
+		.coord = 0,
+		.left.type = mp_endpoint,
+		.right.type = mp_given,
+		.right.parameter = acos(.5),
+		.right.tension = -1,
+	};
+	struct mp_knot z8 = {
+		.coord = 400,
+		.left.type = mp_given,
+		.left.parameter = asin(-1) / 9,
+		.left.tension = -1,
+		.right.type = mp_endpoint,
+	};
 	z7.next = &z8;
 	z8.next = &z7;
 	mp_make_choices(&z7);
 	test(z7.right, 36.94897, 63.99768);
 	test(z8.left, 248.95918, 26.63225);
+
+	// (0, 0) .. (10, 10) .. (10, -5) .. cycle
+	struct mp_knot z9 = {
+		.coord = 0,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_open,
+		.right.tension = 1,
+	};
+	struct mp_knot z10 = {
+		.coord = 10+10*I,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_open,
+		.right.tension = 1,
+	};
+	struct mp_knot z11 = {
+		.coord = 10-5*I,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_open,
+		.right.tension = 1,
+	};
 	z9.next = &z10;
 	z10.next = &z11;
 	z11.next = &z9;
@@ -673,6 +489,55 @@ int main() {
 	test(z11.left, 16.9642, -2.22969);
 	test(z11.right, 5.87875, -6.6394);
 	test(z9.left, 1.26079, -4.29094);
+
+	// (1, 1) .. (4, 5) .. tension atleast 1  {curl 2}(1, 4)
+	// .. (19, -1){-1, -2} .. tension 3 and 4 .. (9, -8)
+	// .. controls (4, 5) and (5, 4) .. (1, 0)
+	struct mp_knot z12 = {
+		.coord = 1+1*I,
+		.left.type = mp_endpoint,
+		.right.type = mp_curl,
+		.right.parameter = 1,
+		.right.tension = 1,
+	};
+	struct mp_knot z13 = {
+		.coord = 4+5*I,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_open,
+		.right.tension = -1,
+	};
+	struct mp_knot z14 = {
+		.coord = 1+4*I,
+		.left.type = mp_curl,
+		.left.parameter = 2,
+		.left.tension = -1,
+		.right.type = mp_curl,
+		.right.parameter = 2,
+		.right.tension = 1,
+	};
+	struct mp_knot z15 = {
+		.coord = 19-1*I,
+		.left.type = mp_given,
+		.left.parameter = atan2(-2, -1),
+		.left.tension = 1,
+		.right.type = mp_given,
+		.right.parameter = atan2(-2, -1),
+		.right.tension = 3,
+	};
+	struct mp_knot z16 = {
+		.coord = 9-8*I,
+		.left.type = mp_open,
+		.left.tension = 4,
+		.right.type = mp_explicit,
+		.right.coord = 4+5*I,
+	};
+	struct mp_knot z17 = {
+		.coord = 1,
+		.left.type = mp_explicit,
+		.left.coord = 5+4*I,
+		.right.type = mp_endpoint,
+	};
 	z12.next = &z13;
 	z13.next = &z14;
 	z14.next = &z15;
@@ -690,6 +555,44 @@ int main() {
 	test(z16.left, 9.42474, -9.10431);
 	test(z16.right, 4, 5);
 	test(z17.left, 5, 4);
+
+	// (0, 0) .. controls (0, 0.5) and (0, 1) .. (0, 1)
+	// .. (1, 1) .. controls (1, 1) and (1, 0.5) .. (1, 0){dir 45°} .. (2, 0)
+	struct mp_knot z18 = {
+		.coord = 0,
+		.left.type = mp_endpoint,
+		.right.type = mp_explicit,
+		.right.coord = .5*I,
+	};
+	struct mp_knot z19 = {
+		.coord = I,
+		.left.type = mp_explicit,
+		.left.coord = I,
+		.right.type = mp_open,
+		.right.tension = 1,
+	};
+	struct mp_knot z20 = {
+		.coord = 1+I,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_explicit,
+		.right.coord = 1+I,
+	};
+	struct mp_knot z21 = {
+		.coord = 1,
+		.left.type = mp_explicit,
+		.left.coord = 1+.5*I,
+		.right.type = mp_given,
+		.right.parameter = atan(1),
+		.right.tension = 1,
+	};
+	struct mp_knot z22 = {
+		.coord = 2,
+		.left.type = mp_curl,
+		.left.parameter = 1,
+		.left.tension = 1,
+		.right.type = mp_endpoint,
+	};
 	z18.next = &z19;
 	z19.next = &z20;
 	z20.next = &z21;
@@ -704,5 +607,47 @@ int main() {
 	test(z21.left, 1, 0.5);
 	test(z21.right, 1.27614, 0.27614);
 	test(z22.left, 1.72386, 0.27614);
+
+	// (1.3, 3.7) .. cycle
+	struct mp_knot z23 = {
+		.coord = 1.3+3.7*I,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_open,
+		.right.tension = 1,
+	};
+	z23.next = &z23;
+	mp_make_choices(&z23);
+	test(z23.left, 1.3, 3.7);
+	test(z23.right, 1.3, 3.7);
+
+	// (1.3, 3.7) .. (1.3, 3.7) .. (1.3, 3.7)
+	struct mp_knot z24 = {
+		.coord = 1.3+3.7*I,
+		.left.type = mp_endpoint,
+		.right.type = mp_open,
+		.right.tension = 1,
+	};
+	struct mp_knot z25 = {
+		.coord = 1.3+3.7*I,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_open,
+		.right.tension = 1,
+	};
+	struct mp_knot z26 = {
+		.coord = 1.3+3.7*I,
+		.left.type = mp_open,
+		.left.tension = 1,
+		.right.type = mp_endpoint,
+	};
+	z24.next = &z25;
+	z25.next = &z26;
+	z26.next = &z24;
+	mp_make_choices(&z24);
+	test(z24.right, 1.3, 3.7);
+	test(z25.left, 1.3, 3.7);
+	test(z25.right, 1.3, 3.7);
+	test(z26.left, 1.3, 3.7);
 	#undef test
 }
