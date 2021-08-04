@@ -749,7 +749,7 @@ static void xnc_x(struct xnc_file *this, double x) {
 	// A '.' must be encountered so a bounary check is unneceassary.
 	while (s[i - 1] == '0') i--;
 	s[i + (s[i - 1] == '.')] = 0;
-	fputs(s, this->fp);
+	fputs(s + (strcmp(s, "-0.0") == 0), this->fp);
 }
 
 static void xnc_xy(struct xnc_file *this, double complex z) {
