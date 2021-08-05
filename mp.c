@@ -15,20 +15,6 @@ double reduce_angle(double x) {
 	return x;
 }
 
-#ifndef CMPLX
-#define _Imaginary_I I
-#define CMPLX(x, y) ((double complex) ((double) (x) + _Imaginary_I * (double) (y)))
-#endif
-
-double complex cpolar(double magnitude, double phase) {
-	assert(magnitude >= 0 && isfinite(phase));
-	return CMPLX(magnitude * cos(phase), magnitude * sin(phase));
-}
-
-double complex mp_trans(double complex z, double complex tx, double complex ty, double complex ta) {
-	return creal(z) * tx + cimag(z) * ty + ta;
-}
-
 // Adobe Photoshop: anchor point
 // https://helpx.adobe.com/photoshop/using/editing-paths.html
 // Microsoft Windows: path point
@@ -67,9 +53,8 @@ struct mp_knot {
 	struct mp_knot *next;
 };
 
-void mp_print_path(struct mp_knot *head) {
-	struct mp_knot *p, *q;
-	p = head;
+void mp_print_path(const struct mp_knot *const head) {
+	const struct mp_knot *p = head, *q;
 	do {
 		q = p->next;
 		assert(p && q);
@@ -89,6 +74,7 @@ void mp_print_path(struct mp_knot *head) {
 		case mp_curl:
 		case mp_given:
 			assert(p->left.type != mp_open);
+			// A curl of 1 is shown explicitly, so that the user sees clearly that the default curl is present.
 			printf("{%s %g}", p->right.type == mp_curl ? "curl" : "dir", p->right.parameter);
 			break;
 		default:
@@ -112,19 +98,6 @@ void mp_print_path(struct mp_knot *head) {
 	} while (p != head);
 	if (head->left.type != mp_endpoint) printf("cycle");
 	putchar('\n');
-}
-
-void mp_trans_path(struct mp_knot *head, double complex tx, double complex ty, double complex ta) {
-	struct mp_knot *p = head;
-	do {
-		if (p->left.type != mp_endpoint) {
-			p->left.coord = mp_trans(p->left.coord, tx, ty, ta);
-		}
-		p->coord = mp_trans(p->coord, tx, ty, ta);
-		if (p->right.type != mp_endpoint) {
-			p->right.coord = mp_trans(p->right.coord, tx, ty, ta);
-		}
-	} while (p != head);
 }
 
 // This is METAPOST's magic fudge factor for placing the first control point of a curve that starts at an angle θ and ends at an angle φ from the straight path.
@@ -174,7 +147,7 @@ static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, 
 	p->right.coord = p->coord + delta_k * eit * rr;
 }
 
-// Search for John Hobby in the METAFONT source document for more details of the mathematics involved.
+// Search for “mock curvature” in the METAFONT source document for more details of the mathematics involved.
 static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, int n) {
 	struct mp_knot *r = NULL, *s = p, *t = p->next;
 	// Calculate the turning angles ψₖ and the distances.
@@ -189,14 +162,16 @@ static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, i
 	psi[n + 1] = psi[1];
 	s = p;
 	// Get the linear equations started; or return with the control points in place, if linear equations needn't be solved.
+	// The first linear equation, if any, will have A₀ = B₀ = 0.
 	double theta[n + 1], u[n], v[n + 1], w[n + 1];
 	switch (s->right.type) {
 	case mp_given:
 		if (t->left.type == mp_given) {
-			double aa = carg(delta[0]);
-			mp_set_controls(p, q, p->right.parameter - aa, aa - q->left.parameter, delta[0]);
+			// Reduce to the simple case of two givens.
+			mp_set_controls(p, q, p->right.parameter - carg(delta[0]), carg(delta[0]) - q->left.parameter, delta[0]);
 			return;
 		} else {
+			// Set up the equation for a given value of θ₀.
 			v[0] = reduce_angle(s->right.parameter - carg(delta[0]));
 			u[0] = 0;
 			w[0] = 0;
@@ -204,21 +179,22 @@ static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, i
 		break;
 	case mp_curl:
 		if (t->left.type == mp_curl) {
+			// Reduce to the simple case of straight line.
 			p->right.type = mp_explicit;
 			q->left.type = mp_explicit;
 			p->right.coord = p->coord + delta[0] / (3 * fabs(p->right.tension));
 			q->left.coord = q->coord - delta[0] / (3 * fabs(q->left.tension));
 			return;
 		} else {
+			// Set up the equation for a curl at θ₀
 			u[0] = mp_curl_ratio(s->right.parameter, fabs(s->right.tension), fabs(t->left.tension));
 			v[0] = -psi[1] * u[0];
 			w[0] = 0;
 		}
 		break;
 	case mp_open:
-		u[0] = 0;
-		v[0] = 0;
-		w[0] = 1;
+		u[0] = v[0] = 0;
+		w[0] = 1; // This begins a cycle.
 		break;
 	default:
 		abort();
@@ -373,17 +349,121 @@ void mp_make_choices(struct mp_knot *head) {
 	} while (p != h);
 }
 
+#define t_of_the_way(a, b) ((1 - t) * (a) + t * (b))
+
+double complex mp_transform(double complex z, double complex tx, double complex ty, double complex ta) {
+	return creal(z) * tx + cimag(z) * ty + ta;
+}
+
+void mp_transform_path(struct mp_knot *head, double complex tx, double complex ty, double complex ta) {
+	struct mp_knot *p = head;
+	do {
+		if (p->left.type != mp_endpoint) {
+			p->left.coord = mp_transform(p->left.coord, tx, ty, ta);
+		}
+		p->coord = mp_transform(p->coord, tx, ty, ta);
+		if (p->right.type != mp_endpoint) {
+			p->right.coord = mp_transform(p->right.coord, tx, ty, ta);
+		}
+	} while (p != head);
+}
+
+// This function is also called htap_ypoc, for the reverse of copy_path.
+struct mp_knot *mp_reverse_path(struct mp_knot *head) {
+	struct mp_knot *p = head, *q = head->next;
+	do {
+		struct mp_knot tmp = *p, *r = q->next;
+		q->next = p;
+		p->left = tmp.right;
+		p->right = tmp.left;
+		p = q;
+		q = r;
+	} while (p != head);
+	return p->right.type == mp_endpoint ? p->next : p;
+}
+
+// mp_crossing_point returns the unique fraction 0 ≤ t ≤ 1 at which B(a, b, c; t) changes from positive to negative, or t > 1 if no such value exists. If a < 0 (so that the polynomial is already negative at t = 0), zero is returned.
+double mp_crossing_point(double a, double b, double c) {
+	if (a < 0) return 0;
+	if (c >= 0){
+		if (b >= 0) {
+			if (c > 0) return nextafter(1, INFINITY);
+			if (!a && !b) return nextafter(1, INFINITY);
+			return 1;
+		}
+		if (!a) return 0;
+	} else if (!a && b <= 0) return 0;
+	c += a - b * 2;
+	b -= a;
+	a = -(sqrt(b * b - a * c) + b) / c;
+	return isnan(a) ? nextafter(1, INFINITY) : a;
+}
+
+double complex bernstein3(double z0, double z0p, double z1m, double z1, double t) {
+	double mt = 1 - t;
+	double t2 = t * t, mt2 = mt * mt;
+	return mt2 * (mt * z0 + 3 * t * z0p) + t2 * (3 * mt * z1m + t * z1);
+}
+
+void mp_bound_cubic(double x0, double x0p, double x1m, double x1, double *const min, double *const max) {
+	*min = fmin(*min, x1);
+	*max = fmax(*max, x1);
+	// Return if there is no need to look for extremes.
+	if (x0p >= *min && x0p <= *max && x1m >= *min && x1m <= *max) return;
+
+	// proportional to the control points of a quadratic derived from a cubic
+	double del1 = x0p - x0;
+	double del2 = x1m - x0p;
+	double del3 = x1 - x1m;
+	double del = del1 ? del1 : del2 ? del2 : del3;
+	if (del < 0) {
+		del1 = -del1;
+		del2 = -del2;
+		del3 = -del3;
+	}
+	double t = mp_crossing_point(del1, del2, del3);
+	if (t >= 1) return;
+	double x = bernstein3(x0, x0p, x1m, x1, t);
+	*min = fmin(*min, x);
+	*max = fmax(*max, x);
+
+	del2 = fmin(0, t_of_the_way(del2, del3));
+	// Now (0, del2, del3) represent the derivative on the remaining interval.
+	double tt = mp_crossing_point(0, -del2, -del3);
+	if (tt >= 1) return;
+	x = bernstein3(x0, x0p, x1m, x1, t_of_the_way(tt, 1));
+	*min = fmin(*min, x);
+	*max = fmax(*max, x);
+}
+
+void mp_path_bbox(struct mp_knot *head, double complex *const llcorner, double complex *const urcorner) {
+	struct mp_knot *p = head, *q;
+	double *minx = (double *) llcorner;
+	double *miny = minx + 1;
+	double *maxx = (double *) urcorner;
+	double *maxy = maxx + 1;
+	*llcorner = *urcorner = p->coord;
+	do {
+		if (p->right.type == mp_endpoint) return;
+		q = p->next;
+		mp_bound_cubic(creal(p->coord), creal(p->right.coord), creal(q->left.coord), creal(q->coord), minx, maxx);
+		mp_bound_cubic(cimag(p->coord), cimag(p->right.coord), cimag(q->left.coord), cimag(q->coord), miny, maxy);
+		p = q;
+	} while (p != head);
+}
 
 int main() {
 	// To see how METAFONT solves a path, run
 	//   mf \\tracingchoices:=tracingonline:=1;path p;
 	// and say “p := ⟨path expression⟩”.
 	// MetaPost has some bugs printing numbers in paths as of 2.01.
-	#define test(control, x, y) \
-	if (cabs((control).coord - CMPLX(x, y)) > 1e-2) \
+	#define tesp(z, x, y) \
+	if (cabs((z) - ((x) + (y) * I)) > 1e-3) \
 	printf("Test failure on line %d: expected (%g, %g), but got (%g, %g)\n", \
 			__LINE__, (double) (x), (double) (y), \
-			creal((control).coord), cimag((control).coord))
+			creal(z), cimag(z))
+	#define test(control, x, y) tesp((control).coord, x, y)
+	double complex ll, ur;
 	// (0, 0)
 	// .. (2, 20){curl 1}
 	// .. {curl 1}(10, 5) .. controls (2, 2)
@@ -455,6 +535,10 @@ int main() {
 	test(z5.left, 0.48712, 14);
 	test(z5.right, 13.40117, 14);
 	test(z6.left, 5, -35.58354);
+	// show llcorner p; show urcorner p;
+	mp_path_bbox(&z1, &ll, &ur);
+	tesp(ll, 0, -14.52234);
+	tesp(ur, 10, 20);
 
 	// (0, 0){dir 60°} .. {dir -10°}(400, 0)
 	struct mp_knot z7 = {
@@ -509,6 +593,23 @@ int main() {
 	test(z11.left, 16.9642, -2.22969);
 	test(z11.right, 5.87875, -6.6394);
 	test(z9.left, 1.26079, -4.29094);
+	mp_reverse_path(&z9);
+	assert(z9.next == &z11);
+	assert(z10.next == &z9);
+	assert(z11.next == &z10);
+	test(z9, 0, 0);
+	test(z10, 10, 10);
+	test(z11, 10, -5);
+	test(z9.left, -1.8685, 6.35925);
+	test(z10.right, 4.02429, 12.14362);
+	test(z10.left, 16.85191, 7.54208);
+	test(z11.right, 16.9642, -2.22969);
+	test(z11.left, 5.87875, -6.6394);
+	test(z9.right, 1.26079, -4.29094);
+	// show llcorner p; show urcorner p;
+	mp_path_bbox(&z9, &ll, &ur);
+	tesp(ll, -0.35213, -5.5248);
+	tesp(ur, 15.18112, 10.45483);
 
 	// (1, 1) .. (4, 5) .. tension atleast 1  {curl 2}(1, 4)
 	// .. (19, -1){-1, -2} .. tension 3 and 4 .. (9, -8)
@@ -640,6 +741,11 @@ int main() {
 	mp_make_choices(&z23);
 	test(z23.left, 1.3, 3.7);
 	test(z23.right, 1.3, 3.7);
+	mp_reverse_path(&z23);
+	assert(z23.next == &z23);
+	test(z23, 1.3, 3.7);
+	test(z23.left, 1.3, 3.7);
+	test(z23.right, 1.3, 3.7);
 
 	// (1.3, 3.7) .. (1.3, 3.7) .. (1.3, 3.7)
 	struct mp_knot z24 = {
@@ -672,4 +778,7 @@ int main() {
 	test(z25.right, 1.3, 3.7);
 	test(z26.left, 1.3, 3.7);
 	#undef test
+	assert(fabs(mp_crossing_point(2, .5, -3) - .5) < 1e-5);
+	assert(fabs(mp_crossing_point(2, .5, -4) - (sqrt(11.0 / 12.0) - .5)) < 1e-5);
+	assert(mp_crossing_point(2, .5, 6) > 1);
 }
