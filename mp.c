@@ -405,6 +405,7 @@ double complex bernstein3(double z0, double z0p, double z1m, double z1, double t
 	return mt2 * (mt * z0 + 3 * t * z0p) + t2 * (3 * mt * z1m + t * z1);
 }
 
+// mp_bound_cubic updates *min and *max based on B(x0, x0p, x1m, x1; t) for 0 < t ≤ 1.
 void mp_bound_cubic(double x0, double x0p, double x1m, double x1, double *const min, double *const max) {
 	*min = fmin(*min, x1);
 	*max = fmax(*max, x1);
@@ -412,9 +413,8 @@ void mp_bound_cubic(double x0, double x0p, double x1m, double x1, double *const 
 	if (x0p >= *min && x0p <= *max && x1m >= *min && x1m <= *max) return;
 
 	// proportional to the control points of a quadratic derived from a cubic
-	double del1 = x0p - x0;
-	double del2 = x1m - x0p;
-	double del3 = x1 - x1m;
+	double del1 = x0p - x0, del2 = x1m - x0p, del3 = x1 - x1m;
+	// If del1 = del2 = del3 = 0, the cubic collapses into a point. We just set del = 0 in that case.
 	double del = del1 ? del1 : del2 ? del2 : del3;
 	if (del < 0) {
 		del1 = -del1;
@@ -423,25 +423,29 @@ void mp_bound_cubic(double x0, double x0p, double x1m, double x1, double *const 
 	}
 	double t = mp_crossing_point(del1, del2, del3);
 	if (t >= 1) return;
+	// Test the first extreme of the cubic against the bounding box.
 	double x = bernstein3(x0, x0p, x1m, x1, t);
 	*min = fmin(*min, x);
 	*max = fmax(*max, x);
 
+	// Since mp_crossing_point has tried to choose t so that B(del1, del2, del3; τ) crosses zero at τ = t with negative slope, del2 should not be positive. But rounding error could make it slightly positive in which case we must cut it to zero to avoid confusion.
 	del2 = fmin(0, t_of_the_way(del2, del3));
 	// Now (0, del2, del3) represent the derivative on the remaining interval.
 	double tt = mp_crossing_point(0, -del2, -del3);
 	if (tt >= 1) return;
+	// Test the second extreme against the bounding box.
 	x = bernstein3(x0, x0p, x1m, x1, t_of_the_way(tt, 1));
 	*min = fmin(*min, x);
 	*max = fmax(*max, x);
 }
 
 void mp_path_bbox(struct mp_knot *head, double complex *const llcorner, double complex *const urcorner) {
+	// Finding the bounding box of a path is basically a matter of applying bound cubic twice for each pair of adjacent knots.
 	struct mp_knot *p = head, *q;
-	double *minx = (double *) llcorner;
-	double *miny = minx + 1;
-	double *maxx = (double *) urcorner;
-	double *maxy = maxx + 1;
+	double *const minx = (double *) llcorner;
+	double *const miny = minx + 1;
+	double *const maxx = (double *) urcorner;
+	double *const maxy = maxx + 1;
 	*llcorner = *urcorner = p->coord;
 	do {
 		if (p->right.type == mp_endpoint) return;
