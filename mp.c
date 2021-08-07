@@ -456,13 +456,30 @@ void mp_path_bbox(struct mp_knot *head, double complex *const llcorner, double c
 	} while (p != head);
 }
 
+// Split a Bézier curve between p and p->next at time t using de Casteljau's algorithm.
+struct mp_knot *mp_split_cubic(struct mp_knot *p, double t) {
+	struct mp_knot *q = p->next, *r = malloc(sizeof(*r));
+	p->next = r;
+	r->next = q;
+	r->left.type = mp_explicit;
+	r->right.type = mp_explicit;
+	// When a cubic is split at a fraction value t, we obtain two cubics whose Bézier control points are obtained by a generalization of the bisection process.
+	double complex v = t_of_the_way(p->right.coord, q->left.coord);
+	p->right.coord = t_of_the_way(p->coord, p->right.coord);
+	q->left.coord = t_of_the_way(q->left.coord, q->coord);
+	r->left.coord = t_of_the_way(p->right.coord, v);
+	r->right.coord = t_of_the_way(v, q->left.coord);
+	r->coord = t_of_the_way(r->left.coord, r->right.coord);
+	return r;
+}
+
 int main() {
 	// To see how METAFONT solves a path, run
 	//   mf \\tracingchoices:=tracingonline:=1;path p;
 	// and say “p := ⟨path expression⟩”.
 	// MetaPost has some bugs printing numbers in paths as of 2.01.
 	#define tesp(z, x, y) \
-	if (cabs((z) - ((x) + (y) * I)) > 1e-3) \
+	if (cabs((z) - ((x) + (y) * I)) > 2e-3) \
 	printf("Test failure on line %d: expected (%g, %g), but got (%g, %g)\n", \
 			__LINE__, (double) (x), (double) (y), \
 			creal(z), cimag(z))
@@ -544,7 +561,7 @@ int main() {
 	tesp(ll, 0, -14.52234);
 	tesp(ur, 10, 20);
 
-	// (0, 0){dir 60°} .. {dir -10°}(400, 0)
+	// (0, 0){dir 60°} ... {dir -10°}(400, 0)
 	struct mp_knot z7 = {
 		.coord = 0,
 		.left.type = mp_endpoint,
@@ -564,6 +581,13 @@ int main() {
 	mp_make_choices(&z7);
 	test(z7.right, 36.94897, 63.99768);
 	test(z8.left, 248.95918, 26.63225);
+	// show subpath (0, .3) of p; show subpath (.3, 1) of p;
+	mp_split_cubic(&z7, .3);
+	test(z7.right, 11.08481, 19.1995);
+	test(z7.next->left, 37.92545,29.27612);
+	tesp(z7.next->coord, 74.1489, 33.25658);
+	test(z7.next->right, 158.66904, 42.54419);
+	test(z8.left, 294.2719, 18.64249);
 
 	// (0, 0) .. (10, 10) .. (10, -5) .. cycle
 	struct mp_knot z9 = {
