@@ -255,12 +255,6 @@ double complex bernstein3(double complex z0, double complex z0p, double complex 
 	return mt2 * (mt * z0 + 3 * t * z0p) + t2 * (3 * mt * z1m + t * z1);
 }
 
-// arc from three points in order
-struct arc {
-	double s, e, r, ts, te;
-	double complex z;
-};
-
 double complex circle_center(double complex z0, double complex zm, double complex z1) {
 	double d = ((creal(z1) - creal(zm)) * cimag(z0) + (creal(z0) - creal(z1)) * cimag(zm) + (creal(zm) - creal(z0)) * cimag(z1)) * 2;
 	return CMPLX(
@@ -281,7 +275,10 @@ void gbr_cubic_bezier_to(struct gbr_file *this, const double complex z0p, const 
 		// step 1: start with the maximum possible arc
 		te = 1;
 		double complex zs = bernstein3(z0, z0p, z1m, z1, ts);
-		struct arc arc, prev_arc;
+		struct {
+			double s, m, e, r;
+			double complex z;
+		} arc, prev_arc;
 		arc.s = NAN;
 		bool currGood = false, prevGood;
 		bool done = false;
@@ -302,11 +299,8 @@ void gbr_cubic_bezier_to(struct gbr_file *this, const double complex z0p, const 
 
 			// arc start/end angles
 			arc.s = carg(zs - arc.z);
-			double d = carg(zm - arc.z);
+			arc.m = carg(zm - arc.z);
 			arc.e = carg(ze - arc.z);
-			// direction correction
-			if (arc.s < arc.e && (d < arc.s || d > arc.e)) arc.e -= 2 * acos(-1);
-			if (arc.s > arc.e && (d < arc.e || d > arc.s)) arc.e += 2 * acos(-1);
 
 			double complex c1 = bernstein3(z0, z0p, z1m, z1, tm - q);
 			double complex c2 = bernstein3(z0, z0p, z1m, z1, tm + q);
@@ -320,7 +314,7 @@ void gbr_cubic_bezier_to(struct gbr_file *this, const double complex z0p, const 
 				// if e is already at max, then we're done for this arc.
 				if (te >= 1) {
 					// make sure we cap at t=1
-					arc.te = prev_e = 1;
+					prev_e = 1;
 					prev_arc = arc;
 					// if we capped the arc segment to t=1 we also need to make sure that
 					// the arc's end angle is correct with respect to the bezier end point.
@@ -337,7 +331,7 @@ void gbr_cubic_bezier_to(struct gbr_file *this, const double complex z0p, const 
 		if (safety >= 100) break;
 
 		if (isnan(prev_arc.s)) prev_arc = arc;
-		gbr_arc_to(this, prev_arc.z + cpolar(prev_arc.r, prev_arc.e), prev_arc.z, prev_arc.s > prev_arc.e);
+		gbr_arc_to(this, prev_arc.z + cpolar(prev_arc.r, prev_arc.e), prev_arc.z, (prev_arc.s < prev_arc.e) ^ (prev_arc.m < prev_arc.s) ^ (prev_arc.m < prev_arc.e));
 		ts = prev_e;
 	} while (te < 1);
 }
