@@ -51,6 +51,9 @@ struct mp_knot {
 		};
 	} left, right;
 	struct mp_knot *next;
+
+	struct mp_knot *prev;//tmp
+	int info;//tmp
 };
 
 void mp_print_path(const struct mp_knot *const head) {
@@ -472,6 +475,7 @@ struct mp_knot *mp_split_cubic(struct mp_knot *p, double t) {
 	r->coord = t_of_the_way(r->left.coord, r->right.coord);
 	return r;
 }
+#include "tmp.c"
 
 int main() {
 	// To see how METAFONT solves a path, run
@@ -556,7 +560,7 @@ int main() {
 	test(z5.left, 0.48712, 14);
 	test(z5.right, 13.40117, 14);
 	test(z6.left, 5, -35.58354);
-	// show llcorner p; show urcorner p;
+	// show llcorner p; show urcorner p; % MetaPost only
 	mp_path_bbox(&z1, &ll, &ur);
 	tesp(ll, 0, -14.52234);
 	tesp(ur, 10, 20);
@@ -581,13 +585,36 @@ int main() {
 	mp_make_choices(&z7);
 	test(z7.right, 36.94897, 63.99768);
 	test(z8.left, 248.95918, 26.63225);
-	// show subpath (0, .3) of p; show subpath (.3, 1) of p;
+	// show subpath (0, .3) of p & subpath (.3, 1) of p;
 	mp_split_cubic(&z7, .3);
 	test(z7.right, 11.08481, 19.1995);
 	test(z7.next->left, 37.92545,29.27612);
 	tesp(z7.next->coord, 74.1489, 33.25658);
 	test(z7.next->right, 158.66904, 42.54419);
 	test(z8.left, 294.2719, 18.64249);
+	// show envelope makepen ((0, -1) -- (3, -1) -- (6, 1) -- (1, 2) -- cycle) of p;
+	// (1,2)..controls (1,2) and (0,-1)
+	//  ..(0,-1)..controls (0,-1) and (3,-1)
+	//  ..(3,-1)..controls (3,-1) and (6,1)
+	//  ..(6,1)..controls (9.54506,7.14023) and (14.70161,12.34738)
+	//  ..(21.26122,16.72046)..controls (21.26122,16.72046) and (18.26122,14.72046)
+	//  ..(18.26122,14.72046)..controls (39.56245,28.92128) and (75.65904,34.32655)
+	//  ..(119.41237,34.32655)..controls (119.41237,34.32655) and (116.41237,34.32655)
+	//  ..(116.41237,34.32655)..controls (199.61642,34.32655) and (310.50972,14.77936)
+	//  ..(400,-1)..controls (400,-1) and (403,-1)
+	//  ..(403,-1)..controls (403,-1) and (406,1)
+	//  ..(406,1)..controls (406,1) and (401,2)
+	//  ..(401,2)..controls (249.95918,28.63225) and (37.94897,65.99768)
+	//  ..cycle
+	struct mp_knot p1 = {.coord = -I};
+	struct mp_knot p2 = {.coord = 3-I};
+	struct mp_knot p3 = {.coord = 6+I};
+	struct mp_knot p4 = {.coord = 1+2*I};
+	p1.next = &p2;p2.prev = &p1;
+	p2.next = &p3;p3.prev = &p2;
+	p3.next = &p4;p4.prev = &p3;
+	p4.next = &p1;p1.prev = &p4;
+	mp_print_path(mp_make_envelope(&z7, &p1, 1, 1, 1));
 
 	// (0, 0) .. (10, 10) .. (10, -5) .. cycle
 	struct mp_knot z9 = {
@@ -638,6 +665,19 @@ int main() {
 	mp_path_bbox(&z9, &ll, &ur);
 	tesp(ll, -0.35213, -5.5248);
 	tesp(ur, 15.18112, 10.45483);
+	// show envelope pensquare scaled 2 of p;
+	// (1,1)..controls (0.75981,1.81746) and (0.64787,2.62543)
+	//  ..(0.64787,3.40826)..controls (0.64787,3.40826) and (0.64787,1.40826)
+	//   ..(0.64787,1.40826)..controls (0.64787,5.83273) and (4.22353,9.45483)
+	//    ..(8.43034,9.45483)..controls (8.43034,9.45483) and (6.43034,9.45483)
+	//     ..(6.43034,9.45483)..controls (7.26956,9.45483) and (8.13391,9.31068)
+	//      ..(9,9)..controls (12.43988,7.76605) and (14.18112,4.68874)
+	//       ..(14.18112,1.57939)..controls (14.18112,1.57939) and (14.18112,3.57939)
+	//        ..(14.18112,3.57939)..controls (14.18112,0.49522) and (12.46796,-2.62047)
+	//         ..(9,-4)..controls (8.10278,-4.3569) and (7.18204,-4.5248)
+	//          ..(6.27751,-4.5248)..controls (6.27751,-4.5248) and (8.27751,-4.5248)
+	//           ..(8.27751,-4.5248)..controls (5.02718,-4.5248) and (1.98631,-2.35678)
+	//            ..cycle
 
 	// (1, 1) .. (4, 5) .. tension atleast 1  {curl 2}(1, 4)
 	// .. (19, -1){-1, -2} .. tension 3 and 4 .. (9, -8)
