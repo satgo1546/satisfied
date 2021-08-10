@@ -592,20 +592,11 @@ int main() {
 	tesp(z7.next->coord, 74.1489, 33.25658);
 	test(z7.next->right, 158.66904, 42.54419);
 	test(z8.left, 294.2719, 18.64249);
-	// show envelope makepen ((0, -1) -- (3, -1) -- (6, 1) -- (1, 2) -- cycle) of p;
-	// (1,2)..controls (1,2) and (0,-1)
-	//  ..(0,-1)..controls (0,-1) and (3,-1)
-	//  ..(3,-1)..controls (3,-1) and (6,1)
-	//  ..(6,1)..controls (9.54506,7.14023) and (14.70161,12.34738)
-	//  ..(21.26122,16.72046)..controls (21.26122,16.72046) and (18.26122,14.72046)
-	//  ..(18.26122,14.72046)..controls (39.56245,28.92128) and (75.65904,34.32655)
-	//  ..(119.41237,34.32655)..controls (119.41237,34.32655) and (116.41237,34.32655)
-	//  ..(116.41237,34.32655)..controls (199.61642,34.32655) and (310.50972,14.77936)
-	//  ..(400,-1)..controls (400,-1) and (403,-1)
-	//  ..(403,-1)..controls (403,-1) and (406,1)
-	//  ..(406,1)..controls (406,1) and (401,2)
-	//  ..(401,2)..controls (249.95918,28.63225) and (37.94897,65.99768)
-	//  ..cycle
+	// Revert the changes due to mp_split_cubic().
+	z7.next = &z8;
+	z7.right.coord = 36.94897 + 63.99768 * I;
+	z8.left.coord = 248.95918 + 26.63225 * I;
+	// show envelope makepen ((0, -1) -- (3, -1) -- (6, 1) -- (1, 2) -- cycle) of p; (MetaPost only)
 	struct mp_knot p1 = {.coord = -I};
 	struct mp_knot p2 = {.coord = 3-I};
 	struct mp_knot p3 = {.coord = 6+I};
@@ -614,7 +605,56 @@ int main() {
 	p2.next = &p3;p3.prev = &p2;
 	p3.next = &p4;p4.prev = &p3;
 	p4.next = &p1;p1.prev = &p4;
-	mp_print_path(mp_make_envelope(&z7, &p1, 1, 1, 1));
+	struct mp_knot *e1 = mp_make_envelope(&z7, &p1, 1, 1, 1);
+	struct mp_knot *e2 = e1->next;
+	struct mp_knot *e3 = e2->next;
+	struct mp_knot *e4 = e3->next;
+	struct mp_knot *e5 = e4->next;
+	struct mp_knot *e6 = e5->next;
+	struct mp_knot *e7 = e6->next;
+	struct mp_knot *e8 = e7->next;
+	struct mp_knot *e9 = e8->next;
+	struct mp_knot *e10 = e9->next;
+	struct mp_knot *e11 = e10->next;
+	struct mp_knot *e12 = e11->next;
+	assert(e12->next == e1);
+	test(*e1, 1, 2);
+	test(e1->right, 1, 2);
+	test(e2->left, 0, -1);
+	test(*e2, 0, -1);
+	test(e2->right, 0, -1);
+	test(e3->left, 3, -1);
+	test(*e3, 3, -1);
+	test(e3->right, 3, -1);
+	test(e4->left, 6, 1);
+	test(*e4, 6, 1);
+	test(e4->right, 9.54506, 7.14023);
+	test(e5->left, 14.70161, 12.34738);
+	test(*e5, 21.26122, 16.72046);
+	test(e5->right, 21.26122, 16.72046);
+	test(e6->left, 18.26122, 14.72046);
+	test(*e6, 18.26122, 14.72046);
+	test(e6->right, 39.56245, 28.92128);
+	test(e7->left, 75.65904, 34.32655);
+	test(*e7, 119.41237, 34.32655);
+	test(e7->right, 119.41237, 34.32655);
+	test(e8->left, 116.41237, 34.32655);
+	test(*e8, 116.41237, 34.32655);
+	test(e8->right, 199.61642, 34.32655);
+	test(e9->left, 310.50972, 14.77936);
+	test(*e9, 400, -1);
+	test(e9->right, 400, -1);
+	test(e10->left, 403, -1);
+	test(*e10, 403, -1);
+	test(e10->right, 403, -1);
+	test(e11->left, 406, 1);
+	test(*e11, 406, 1);
+	test(e11->right, 406, 1);
+	test(e12->left, 401, 2);
+	test(*e12, 401, 2);
+	test(e12->right, 249.95918, 28.63225);
+	test(e1->left, 37.94897, 65.99768);
+
 
 	// (0, 0) .. (10, 10) .. (10, -5) .. cycle
 	struct mp_knot z9 = {
