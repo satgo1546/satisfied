@@ -161,7 +161,7 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double x0, double 
 		}
 
 		mp_split_cubic(p, t);
-		p = mp_next_knot(p);
+		p = p->next;
 		mp_knot_info(p) = rise;
 		turn_amt--;
 		v = t_of_the_way(x0, x1);
@@ -174,8 +174,8 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double x0, double 
 			t1 = fmin(0, t_of_the_way(t1, t2));
 			t = fmin(1, mp_crossing_point(0, -t1, -t2));
 			turn_amt++;
-			if (t == 1 && mp_next_knot(p) != q) {
-				mp_knot_info(mp_next_knot(p)) = mp_knot_info(mp_next_knot(p)) - rise;
+			if (t == 1 && p->next != q) {
+				mp_knot_info(p->next) -= rise;
 			} else {
 				mp_split_cubic(p, t);
 				mp_knot_info(mp_next_knot(p)) = -rise;
@@ -212,12 +212,8 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
 		p = p->next;
 	} while (p != h);
 
-	double dxin = mp_x_coord(mp_next_knot(h)) - mp_x_coord(mp_prev_knot(h));
-	double dyin = mp_y_coord(mp_next_knot(h)) - mp_y_coord(mp_prev_knot(h));
-	if (!dxin && !dyin) {
-		dxin = mp_y_coord(mp_prev_knot(h)) - mp_y_coord(h);
-		dyin = mp_x_coord(h) - mp_x_coord(mp_prev_knot(h));
-	}
+	double complex dzin = h->next->coord - mp_prev_knot(h)->coord;
+	if (!dzin) dzin = I * (h->coord - mp_prev_knot(h)->coord);
 	struct mp_knot *w0 = h, *c0 = c;
 	p = c;
 	int k_needed = 0;
@@ -252,32 +248,27 @@ printf("@@@@@%d\n",__LINE__);
 			dy0 = dy;
 		}
 
-		turn_amt = mp_get_turn_amt(w0, dx, dy, dy * dxin >= dx * dyin);
+		turn_amt = mp_get_turn_amt(w0, dx, dy, dy * creal(dzin) >= dx * cimag(dzin));
 		w = mp_pen_walk(w0, turn_amt);
 		w0 = w;
 		mp_knot_info(p) += turn_amt;
-
-		dxin = x2;
-		dyin = y2;
-		if (!dxin && !dyin) {
-			dxin = x1;
+		dzin = x2 + y2 * I;
+		if (!dzin) {
+			dzin = x1 + y1 * I;
 printf("@@@@@%d\n",__LINE__);
-			dyin = y1;
-			if (!dxin && !dyin) {
-				dxin = x0;
+			if (!dzin) {
+				dzin = x0 + y0 * I;
 printf("@@@@@%d\n",__LINE__);
-				dyin = y0;
 			}
 		}
 
-
-		d_sign = dx * dyin - dxin * dy;
+		d_sign = dx * cimag(dzin) - creal(dzin) * dy;
 		d_sign = (d_sign > 0) - (d_sign < 0);
 		if (!d_sign) {
 			u0 = mp_x_coord(q) - mp_x_coord(p);
 			u1 = mp_y_coord(q) - mp_y_coord(p);
 			int tmp1 = dx * u1 - u0 * dy;
-			int tmp2 = u0 * dyin - dxin * u1;
+			int tmp2 = u0 * cimag(dzin) - creal(dzin) * u1;
 			d_sign = ((tmp1>0)-(tmp1<0) + (tmp2>0)-(tmp2<0)) / 2;
 printf("@@@@@%d\n",__LINE__);
 		}
@@ -300,7 +291,7 @@ printf("@@@@@%d\n",__LINE__);
 			v1 = t_of_the_way(y1, y0);
 		}
 		ss = (x0 + x2) * t_of_the_way(u0, u1) + (y0 + y2) * t_of_the_way(v0, v1);
-		turn_amt = mp_get_turn_amt(w, dxin, dyin, (d_sign > 0));
+		turn_amt = mp_get_turn_amt(w, creal(dzin), cimag(dzin), (d_sign > 0));
 		if (ss < 0) turn_amt = turn_amt - d_sign * n;
 
 		ww = mp_prev_knot(w);
@@ -426,7 +417,7 @@ printf("@@@@@%d\n",__LINE__);
 		}
 		while (mp_knot_info(c) <= -n) mp_knot_info(c) += n;
 		while (mp_knot_info(c) > 0) mp_knot_info(c) -= n;
-		if (mp_knot_info(c) && dy0 * dxin >= dx0 * dyin) mp_knot_info(c) += n;
+		if (mp_knot_info(c) && dy0 * creal(dzin) >= dx0 * cimag(dzin)) mp_knot_info(c) += n;
 	}
 	return c;
 }
@@ -467,20 +458,15 @@ struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h, int ljoin
 	double qx, qy;
 	int k, k0;
 	int join_type = 0;
-	double dxin, dyin, dxout, dyout;
+	double complex dzin = 0, dzout = 0;
 	double tmp;
 	double det;
 	double ht_x, ht_y;
 	double max_ht;
 	int kk;
 	struct mp_knot *ww;
-	dxin = 0;
-	dyin = 0;
-	dxout = 0;
-	dyout = 0;
 	mp->spec_p1 = NULL;
 	mp->spec_p2 = NULL;
-
 
 	if (mp_left_type(c) == mp_endpoint) {
 		mp->spec_p1 = mp_htap_ypoc(c);
@@ -526,57 +512,47 @@ printf("@@@@@%d\n",__LINE__);
 				else
 					join_type = 2 - lcap;
 				if (join_type == 0 || join_type == 3) {
-					dxin = mp_x_coord(q) - mp_left_x(q);
-					dyin = mp_y_coord(q) - mp_left_y(q);
-					if ((dxin == 0) && (dyin == 0)) {
-						dxin = mp_x_coord(q) - mp_right_x(p);
+					dzin = q->coord - q->left.coord;
+					if (!dzin) {
+						dzin = q->coord - p->right.coord;
 printf("@@@@@%d\n",__LINE__);
-						dyin = mp_y_coord(q) - mp_right_y(p);
-						if ((dxin == 0) && (dyin == 0)) {
-							dxin = mp_x_coord(q) - mp_x_coord(p);
+						if (!dzin) {
+							dzin = q->coord - p->coord;
 printf("@@@@@%d\n",__LINE__);
-							dyin = mp_y_coord(q) - mp_y_coord(p);
 							if (p != c) {
-								dxin = dxin + mp_x_coord(w);
+								dzin += w->coord;
 printf("@@@@@%d\n",__LINE__);
-								dyin = dyin + mp_y_coord(w);
 							}
 						}
 					}
-					tmp = hypot(dxin, dyin);
+					tmp = cabs(dzin);
 					if (!tmp) {
 						join_type = 2;
 printf("@@@@@%d\n",__LINE__);
 					} else {
-						dxin = dxin / tmp;
-						dyin = dyin / tmp;
+						dzin /= tmp;
 
-						dxout = mp_right_x(q) - mp_x_coord(q);
-						dyout = mp_right_y(q) - mp_y_coord(q);
-						if (!dxout && !dyout) {
+						dzout = q->right.coord - q->coord;
+						if (!dzout) {
 							r = q->next;
-							dxout = mp_left_x(r) - mp_x_coord(q);
+							dzout = r->left.coord - q->coord;
 printf("@@@@@%d\n",__LINE__);
-							dyout = mp_left_y(r) - mp_y_coord(q);
-							if (!dxout && !dyout) {
-								dxout = mp_x_coord(r) - mp_x_coord(q);
-								dyout = mp_y_coord(r) - mp_y_coord(q);
+							if (!dzout) {
+								dzout = r->coord - q->coord;
 printf("@@@@@%d\n",__LINE__);
 							}
 						}
 						if (q == c) {
-							dxout = dxout - mp_x_coord(h);
-							dyout = dyout - mp_y_coord(h);
+							dzout -= -h->coord;
 printf("@@@@@%d\n",__LINE__);
 						}
-						tmp = hypot(dxout, dyout);
+						tmp = cabs(dzout);
 						assert(tmp); // tmp = 0 → degenerate spec
-						dxout /= tmp;
-						dyout /= tmp;
+						dzout /= tmp;
 printf("@@@@@%d\n",__LINE__);
 					}
 					if (join_type == 0) {
-						tmp = mp_take_fraction(miterlim, fraction_half + (mp_take_fraction(dxin, dxout) + mp_take_fraction(dyin, dyout)) / 2);
+						tmp = miterlim * (creal(dzin * conj(dzout)) + 1) / 2;
 						if (tmp < 1 && miterlim * tmp < 1) join_type = 2;
 printf("@@@@@%d\n",__LINE__);
 					}
@@ -603,16 +579,15 @@ printf("@@@@@%d\n",__LINE__);
 			p = p->next;
 			if (join_type == 0 || join_type == 3) {
 				if (join_type == 0) {
-					det = dyout * dxin - dxout * dyin;
+					det = cimag(conj(dzin) * dzout);
 printf("@@@@@%d\n",__LINE__);
 					if (fabs(det) < 1e-4) {
 						r = NULL;
 printf("@@@@@%d\n",__LINE__);
 					} else {
-						tmp = (mp_x_coord(q) - mp_x_coord(p)) * dyout - (mp_y_coord(q) - mp_y_coord(p)) * dxout;
+						tmp = cimag(conj(q->coord - p->coord) * dzout) / det;
 printf("@@@@@%d\n",__LINE__);
-						tmp /= det;
-						r = mp_insert_knot(p, mp_x_coord(p) + tmp * dxin, mp_y_coord(p) + tmp * dyin);
+						r = mp_insert_knot(p, mp_x_coord(p) + tmp * creal(dzin), mp_y_coord(p) + tmp * cimag(dzin));
 					}
 				} else {
 					ht_x = mp_y_coord(w) - mp_y_coord(w0);
@@ -637,17 +612,13 @@ printf("@@@@@%d\n",__LINE__);
 printf("@@@@@%d\n",__LINE__);
 						if (tmp > max_ht) max_ht = tmp;
 					}
-					tmp = mp_make_fraction(max_ht, mp_take_fraction(dxin, ht_x) + mp_take_fraction(dyin, ht_y));
-					r = mp_insert_knot(p, mp_x_coord(p) + tmp * dxin, mp_y_coord(p) + tmp * dyin);
+					tmp = mp_make_fraction(max_ht, mp_take_fraction(creal(dzin), ht_x) + mp_take_fraction(cimag(dzin), ht_y));
+					r = mp_insert_knot(p, mp_x_coord(p) + tmp * creal(dzin), mp_y_coord(p) + tmp * cimag(dzin));
 printf("@@@@@%d\n",__LINE__);
-					tmp = mp_make_fraction(max_ht, mp_take_fraction(dxout, ht_x) + mp_take_fraction(dyout, ht_y));
-					r = mp_insert_knot(r, mp_x_coord(q) + tmp * dxout, mp_y_coord(q) + tmp * dyout);
+					tmp = mp_make_fraction(max_ht, mp_take_fraction(creal(dzout), ht_x) + mp_take_fraction(cimag(dzout), ht_y));
+					r = mp_insert_knot(r, mp_x_coord(q) + tmp * creal(dzout), mp_y_coord(q) + tmp * creal(dzout));
 				}
-				if (r) {
-					mp_right_x(r) = mp_x_coord(r);
-					mp_right_y(r) = mp_y_coord(r);
-printf("@@@@@%d\n",__LINE__);
-				}
+				if (r) r->right.coord = r->coord;
 			}
 		}
 		p = q;
