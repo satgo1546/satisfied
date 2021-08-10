@@ -197,8 +197,12 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
 
 	double x0, x1, x2, y0, y1, y2;
 	double t0, t1, t2;
-	double du, dv, dx, dy;
-	double dx0 = 0, dy0 = 0;
+	double du, dv;
+	double complex dz, dz0 = 0;
+	#define dy cimag(dz)
+	#define dx creal(dz)
+	#define dy0 cimag(dz0)
+	#define dx0 creal(dz0)
 	double x0a, x1a, x2a, y0a, y1a, y2a;
 	double t;
 	double s;
@@ -232,23 +236,17 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
 		double max_coef = fmax(fmax(fmax(fmax(fmax(fabs(x0), fabs(x1)), fabs(x2)), fabs(y0)), fabs(y1)), fabs(y2));
 		if (!max_coef) goto NOT_FOUND;
 
-		dx = x0;
-		dy = y0;
-		if (!dx && !dy) {
-			dx = x1;
-			dy = y1;
-			if (!dx && !dy) {
-				dx = x2;
-				dy = y2;
+		dz = x0 + y0 * I;
+		if (!dz) {
+			dz = x1 + y1 * I;
+			if (!dz) {
+				dz = x2 + y2 * I;
 printf("@@@@@%d\n",__LINE__);
 			}
 		}
-		if (p == c) {
-			dx0 = dx;
-			dy0 = dy;
-		}
+		if (p == c) dz0 = dz;
 
-		turn_amt = mp_get_turn_amt(w0, dx, dy, dy * creal(dzin) >= dx * cimag(dzin));
+		turn_amt = mp_get_turn_amt(w0, dx, dy, cimag(dzin * conj(dz)) <= 0);
 		w = mp_pen_walk(w0, turn_amt);
 		w0 = w;
 		mp_knot_info(p) += turn_amt;
@@ -262,7 +260,7 @@ printf("@@@@@%d\n",__LINE__);
 			}
 		}
 
-		d_sign = dx * cimag(dzin) - creal(dzin) * dy;
+		d_sign = cimag(dzin * conj(dz));
 		d_sign = (d_sign > 0) - (d_sign < 0);
 		if (!d_sign) {
 			u0 = mp_x_coord(q) - mp_x_coord(p);
@@ -272,7 +270,7 @@ printf("@@@@@%d\n",__LINE__);
 			d_sign = ((tmp1>0)-(tmp1<0) + (tmp2>0)-(tmp2<0)) / 2;
 printf("@@@@@%d\n",__LINE__);
 		}
-		if (!d_sign) d_sign = dx ? (dx > 0) - (dx < 0) : (dy > 0) - (dy < 0);
+		if (!d_sign) d_sign = creal(dz) ? (creal(dz) > 0) - (creal(dz) < 0) : (cimag(dz) > 0) - (cimag(dz) < 0);
 
 		t0 = (x0 * y2 - x2 * y0) / 2;
 		t1 = (x1 * (y0 + y2) - y1 * (x0 + x2)) / 2;
@@ -417,7 +415,7 @@ printf("@@@@@%d\n",__LINE__);
 		}
 		while (mp_knot_info(c) <= -n) mp_knot_info(c) += n;
 		while (mp_knot_info(c) > 0) mp_knot_info(c) -= n;
-		if (mp_knot_info(c) && dy0 * creal(dzin) >= dx0 * cimag(dzin)) mp_knot_info(c) += n;
+		if (mp_knot_info(c) && cimag(dzin * conj(dz0)) <= 0) mp_knot_info(c) += n;
 	}
 	return c;
 }
