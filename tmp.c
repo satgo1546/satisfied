@@ -100,61 +100,35 @@ struct mp_knot *mp_pen_walk(struct mp_knot *w, int k) {
 	return w;
 }
 
-int mp_get_turn_amt(struct mp_knot *w, double dx, double dy, bool ccw) {
+int mp_get_turn_amt(struct mp_knot *w, double complex dz, bool clockwise) {
 	int s = 0;
-	if (ccw) {
-		struct mp_knot *ww = mp_next_knot(w);
-		int t;
-		do {
-			t = dy * (mp_x_coord(ww) - mp_x_coord(w)) - dx * (mp_y_coord(ww) - mp_y_coord(w));
-			if (t < 0) break;
-			s++;
-			w = ww;
-			ww = mp_next_knot(ww);
-		} while (t > 0);
-	} else {
+	if (clockwise) {
 		struct mp_knot *ww = mp_prev_knot(w);
-		while (dy * (mp_x_coord(w) - mp_x_coord(ww)) < dx * (mp_y_coord(w) - mp_y_coord(ww))) {
+		while (cimag(dz * conj(ww->coord - w->coord)) > 0) {
 			s--;
 			w = ww;
 			ww = mp_prev_knot(ww);
 		}
+	} else {
+		struct mp_knot *ww = mp_next_knot(w);
+		while (cimag(dz * conj(ww->coord - w->coord)) > 0) {
+			s++;
+			w = ww;
+			ww = mp_next_knot(ww);
+		}
+		if (cimag(dz * conj(ww->coord - w->coord)) == 0) s++;
 	}
 	return s;
 }
 
-void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double x0, double x1, double x2, double y0, double y1, double y2, int rise, int turn_amt) {
-	struct mp_knot *ww;
-	double du, dv, t, s, v;
-	double t0, t1, t2;
+void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double complex z0, double complex z1, double complex z2, int rise, int turn_amt) {
 	struct mp_knot *q = mp_next_knot(p);
 	for (;;) {
-		ww = rise > 0 ? mp_next_knot(w) : mp_prev_knot(w);
-		du = mp_x_coord(ww) - mp_x_coord(w);
-		dv = mp_y_coord(ww) - mp_y_coord(w);
-		if (fabs(du) >= fabs(dv)) {
-			s = dv / du;
-			t0 = x0 * s - y0;
-			t1 = x1 * s - y1;
-			t2 = x2 * s - y2;
-			if (du < 0) {
-				t0 = -t0;
-				t1 = -t1;
-				t2 = -t2;
-			}
-		} else {
-			s = du / dv;
-			t0 = x0 - y0 * s;
-			t1 = x1 - y1 * s;
-			t2 = x2 - y2 * s;
-			if (dv < 0) {
-				t0 = -t0;
-				t1 = -t1;
-				t2 = -t2;
-			}
-		}
-		t0 = fmax(0, t0);
-		t = mp_crossing_point(t0, t1, t2);
+		struct mp_knot *ww = rise > 0 ? mp_next_knot(w) : mp_prev_knot(w);
+		double complex dw = ww->coord - w->coord;
+		double t1 = cimag(conj(z1) * dw);
+		double t2 = cimag(conj(z2) * dw);
+		double t = mp_crossing_point(fmax(0, cimag(conj(z0) * dw)), t1, t2);
 		if (t >= 1) {
 			if (turn_amt <= 0) return;
 			t = 1;
@@ -164,12 +138,9 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double x0, double 
 		p = p->next;
 		mp_knot_info(p) = rise;
 		turn_amt--;
-		v = t_of_the_way(x0, x1);
-		x1 = t_of_the_way(x1, x2);
-		x0 = t_of_the_way(v, x1);
-		v = t_of_the_way(y0, y1);
-		y1 = t_of_the_way(y1, y2);
-		y0 = t_of_the_way(v, y1);
+		double complex v = t_of_the_way(z0, z1);
+		z1 = t_of_the_way(z1, z2);
+		z0 = t_of_the_way(v, z1);
 		if (turn_amt < 0) {
 			t1 = fmin(0, t_of_the_way(t1, t2));
 			t = fmin(1, mp_crossing_point(0, -t1, -t2));
@@ -178,13 +149,10 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double x0, double 
 				mp_knot_info(p->next) -= rise;
 			} else {
 				mp_split_cubic(p, t);
-				mp_knot_info(mp_next_knot(p)) = -rise;
-				v = t_of_the_way(x1, x2);
-				x1 = t_of_the_way(x0, x1);
-				x2 = t_of_the_way(x1, v);
-				v = t_of_the_way(y1, y2);
-				y1 = t_of_the_way(y0, y1);
-				y2 = t_of_the_way(y1, v);
+				mp_knot_info(p->next) = -rise;
+				v = t_of_the_way(z1, z2);
+				z1 = t_of_the_way(z0, z1);
+				z2 = t_of_the_way(z1, v);
 			}
 		}
 		w = ww;
@@ -195,28 +163,11 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
 	struct mp_knot *p = h, *q, *q0, *r, *w, *ww;
 	int turn_amt;
 
-	double complex z0, z1, z2;
 	double t0, t1, t2;
-	double du, dv;
 	double complex dz, dz0 = 0;
-	#define x1a creal(z1a)
-	#define y1a cimag(z1a)
-	#define x2a creal(z2a)
-	#define y2a cimag(z2a)
-	#define x0a creal(z0a)
-	#define y0a cimag(z0a)
-	#define x1 creal(z1)
-	#define y1 cimag(z1)
-	#define x2 creal(z2)
-	#define y2 cimag(z2)
-	#define x0 creal(z0)
-	#define y0 cimag(z0)
 	#define dy cimag(dz)
 	#define dx creal(dz)
-	#define dy0 cimag(dz0)
-	#define dx0 creal(dz0)
 	double t;
-	double s;
 
 	double u0, u1, v0, v1;
 	double ss = 0;
@@ -238,16 +189,15 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
 		mp_knot_info(p) = k_needed;
 		k_needed = 0;
 
-		z0 = p->right.coord - p->coord;
-		z2 = q->coord - q->left.coord;
-		z1 = q->left.coord - p->right.coord;
-		double max_coef = fmax(fmax(fmax(fmax(fmax(fabs(x0), fabs(x1)), fabs(x2)), fabs(y0)), fabs(y1)), fabs(y2));
-		if (!max_coef) goto NOT_FOUND;
+		double complex z0 = p->right.coord - p->coord;
+		double complex z1 = q->left.coord - p->right.coord;
+		double complex z2 = q->coord - q->left.coord;
+		if (!z0 && !z1 && !z2) goto NOT_FOUND;
 
 		dz = z0 ? z0 : z1 ? z1 : z2;
 		if (p == c) dz0 = dz;
 
-		turn_amt = mp_get_turn_amt(w0, dx, dy, cimag(dzin * conj(dz)) <= 0);
+		turn_amt = mp_get_turn_amt(w0, dz, cimag(dzin * conj(dz)) > 0);
 		w = mp_pen_walk(w0, turn_amt);
 		w0 = w;
 		mp_knot_info(p) += turn_amt;
@@ -268,6 +218,12 @@ printf("@@@@@%d\n",__LINE__);
 		t0 = cimag(conj(z0) * z2) / 2;
 		t1 = cimag(conj(z1) * (z0 + z2)) / 2;
 		if (!t0) t0 = d_sign;
+		#define x1 creal(z1)
+		#define y1 cimag(z1)
+		#define x2 creal(z2)
+		#define y2 cimag(z2)
+		#define x0 creal(z0)
+		#define y0 cimag(z0)
 		if (t0 > 0) {
 			t = mp_crossing_point(t0, t1, -t0);
 			u0 = t_of_the_way(x0, x1);
@@ -282,54 +238,32 @@ printf("@@@@@%d\n",__LINE__);
 			v1 = t_of_the_way(y1, y0);
 		}
 		ss = (x0 + x2) * t_of_the_way(u0, u1) + (y0 + y2) * t_of_the_way(v0, v1);
-		turn_amt = mp_get_turn_amt(w, creal(dzin), cimag(dzin), (d_sign > 0));
-		if (ss < 0) turn_amt = turn_amt - d_sign * n;
+		turn_amt = mp_get_turn_amt(w, dzin, d_sign < 0);
+		if (ss < 0) turn_amt -= d_sign * n;
 
 		ww = mp_prev_knot(w);
 
-		du = mp_x_coord(ww) - mp_x_coord(w);
-		dv = mp_y_coord(ww) - mp_y_coord(w);
-		if (fabs(du) >= fabs(dv)) {
-			s = dv / du;
-			t0 = x0 * s - y0;
-			t1 = x1 * s - y1;
-			t2 = x2 * s - y2;
-			if (du < 0) {
-				t0 = -t0;
-				t1 = -t1;
-				t2 = -t2;
-			}
-		} else {
-			s = du / dv;
-			t0 = x0 - y0 * s;
-			t1 = x1 - y1 * s;
-			t2 = x2 - y2 * s;
-			if (dv < 0) {
-				t0 = -t0;
-				t1 = -t1;
-				t2 = -t2;
-			}
-		}
-		if (t0 < 0) t0 = 0;
-
-		t = mp_crossing_point(t0, t1, t2);
+		double complex dw = ww->coord - w->coord;
+		t1 = cimag(conj(z1) * dw);
+		t2 = cimag(conj(z2) * dw);
+		t = mp_crossing_point(fmax(0, cimag(conj(z0) * dw)), t1, t2);
 		if (turn_amt >= 0) {
 			if (t2 < 0) {
 				t = nextafter(1, INFINITY);
 			} else {
 				u0 = t_of_the_way(x0, x1);
 				u1 = t_of_the_way(x1, x2);
-				ss = -du / t_of_the_way(u0, u1);
+				ss = -creal(dw) / t_of_the_way(u0, u1);
 				v0 = t_of_the_way(y0, y1);
 				v1 = t_of_the_way(y1, y2);
-				ss -= dv * t_of_the_way(v0, v1);
+				ss -= cimag(dw) * t_of_the_way(v0, v1);
 				if (ss < 0) t = nextafter(1, INFINITY);
 			}
 		} else if (t > 1) {
 			t = 1;
 		}
 		if (t > 1) {
-			mp_fin_offset_prep(p, w, x0, x1, x2, y0, y1, y2, 1, turn_amt);
+			mp_fin_offset_prep(p, w, z0, z1, z2, 1, turn_amt);
 		} else {
 			double complex z0a, z1a, z2a;
 			mp_split_cubic(p, t);
@@ -337,7 +271,7 @@ printf("@@@@@%d\n",__LINE__);
 			z1a = t_of_the_way(z0, z1);
 			z1 = t_of_the_way(z1, z2);
 			z2a = t_of_the_way(z1a, z1);
-			mp_fin_offset_prep(p, w, x0, x1a, x2a, y0, y1a, y2a, 1, 0);
+			mp_fin_offset_prep(p, w, z0, z1a, z2a, 1, 0);
 			z0 = z2a;
 			mp_knot_info(r) = -1;
 			if (turn_amt >= 0) {
@@ -349,11 +283,11 @@ printf("@@@@@%d\n",__LINE__);
 				z1a = t_of_the_way(z1, z2);
 				z1 = t_of_the_way(z0, z1);
 				z0a = t_of_the_way(z1, z1a);
-				mp_fin_offset_prep(r->next, w, x0a, x1a, x2, y0a, y1a, y2, 1, turn_amt);
+				mp_fin_offset_prep(r->next, w, z0a, z1a, z2, 1, turn_amt);
 				z2 = z0a;
-				mp_fin_offset_prep(r, ww, x0, x1, x2, y0, y1, y2, -1, 0);
+				mp_fin_offset_prep(r, ww, z0, z1, z2, -1, 0);
 			} else {
-				mp_fin_offset_prep(r, ww, x0, x1, x2, y0, y1, y2, -1, -1 - turn_amt);
+				mp_fin_offset_prep(r, ww, z0, z1, z2, -1, -1 - turn_amt);
 			}
 		}
 		w0 = mp_pen_walk(w0, turn_amt);
@@ -405,10 +339,6 @@ printf("@@@@@%d\n",__LINE__);
 	}
 	return c;
 }
-
-
-
-
 
 
 
