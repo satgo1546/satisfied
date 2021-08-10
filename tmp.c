@@ -15,13 +15,11 @@
 #define right_curl mp_right_x
 #define right_given mp_right_x
 #define right_tension mp_right_y
-#define zero_off 16384
 #define incr(A) (A) = (A) + 1
-#define decr(A) (A) = (A) -1
+#define decr(A) (A) = (A) - 1
 #define negate(A) (A) = -(A)
 #define double(A) (A) = (A) + (A)
 #define odd(A) ((A) % 2 == 1)
-#define fix_by(A) mp_knot_info(c) += (A)
 #define mp_make_fraction(a, b) ((a) / (b))
 #define mp_take_fraction(a, b) ((a) * (b))
 #define unity 1.0
@@ -37,7 +35,7 @@
 
 #define ninety_deg (asin(1))
 #define one_eighty_deg (acos(-1))
-#define three_sixty_deg (2*acos(-1))
+#define three_sixty_deg (2 * acos(-1))
 
 struct {
 	int spec_offset; // number of pen edges between h and the initial offset
@@ -162,11 +160,10 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double x0, double 
 			t = 1;
 		}
 
-
 		mp_split_cubic(p, t);
 		p = mp_next_knot(p);
-		mp_knot_info(p) = zero_off + rise;
-		decr(turn_amt);
+		mp_knot_info(p) = rise;
+		turn_amt--;
 		v = t_of_the_way(x0, x1);
 		x1 = t_of_the_way(x1, x2);
 		x0 = t_of_the_way(v, x1);
@@ -181,7 +178,7 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double x0, double 
 				mp_knot_info(mp_next_knot(p)) = mp_knot_info(mp_next_knot(p)) - rise;
 			} else {
 				mp_split_cubic(p, t);
-				mp_knot_info(mp_next_knot(p)) = zero_off - rise;
+				mp_knot_info(mp_next_knot(p)) = -rise;
 				v = t_of_the_way(x1, x2);
 				x1 = t_of_the_way(x0, x1);
 				x2 = t_of_the_way(x1, v);
@@ -227,7 +224,7 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
 	do {
 		q = p->next;
 
-		mp_knot_info(p) = zero_off + k_needed;
+		mp_knot_info(p) = k_needed;
 		k_needed = 0;
 
 		x0 = mp_right_x(p) - mp_x_coord(p);
@@ -258,7 +255,7 @@ printf("@@@@@%d\n",__LINE__);
 		turn_amt = mp_get_turn_amt(w0, dx, dy, dy * dxin >= dx * dyin);
 		w = mp_pen_walk(w0, turn_amt);
 		w0 = w;
-		mp_knot_info(p) = mp_knot_info(p) + turn_amt;
+		mp_knot_info(p) += turn_amt;
 
 		dxin = x2;
 		dyin = y2;
@@ -322,19 +319,16 @@ printf("@@@@@%d\n",__LINE__);
 			}
 		} else {
 			s = du / dv;
-printf("@@@@@%d\n",__LINE__);
 			t0 = x0 - y0 * s;
 			t1 = x1 - y1 * s;
 			t2 = x2 - y2 * s;
 			if (dv < 0) {
-printf("@@@@@%d\n",__LINE__);
 				t0 = -t0;
 				t1 = -t1;
 				t2 = -t2;
 			}
 		}
 		if (t0 < 0) t0 = 0;
-
 
 		t = mp_crossing_point(t0, t1, t2);
 		if (turn_amt >= 0) {
@@ -366,16 +360,13 @@ printf("@@@@@%d\n",__LINE__);
 			mp_fin_offset_prep(p, w, x0, x1a, x2a, y0, y1a, y2a, 1, 0);
 			x0 = x2a;
 			y0 = y2a;
-			mp_knot_info(r) = zero_off - 1;
+			mp_knot_info(r) = -1;
 			if (turn_amt >= 0) {
-				t1 = t_of_the_way(t1, t2);
-				if (t1 > 0) t1 = 0;
-				t = mp_crossing_point(0, -t1, -t2);
-				if (t > 1) t = 1;
-
+				t1 = fmin(0, t_of_the_way(t1, t2));
+				t = fmin(1, mp_crossing_point(0, -t1, -t2));
 
 				mp_split_cubic(r, t);
-				mp_knot_info(r->next) = zero_off + 1;
+				mp_knot_info(r->next) = 1;
 				x1a = t_of_the_way(x1, x2);
 				x1 = t_of_the_way(x0, x1);
 				x0a = t_of_the_way(x1, x1a);
@@ -389,16 +380,15 @@ printf("@@@@@%d\n",__LINE__);
 			} else {
 				mp_fin_offset_prep(r, ww, x0, x1, x2, y0, y1, y2, -1, -1 - turn_amt);
 			}
-		};
+		}
 		w0 = mp_pen_walk(w0, turn_amt);
 NOT_FOUND:
-
 
 		q0 = q;
 		do {
 			r = p->next;
-			if (mp_x_coord(p) == mp_right_x(p) && mp_y_coord(p) == mp_right_y(p) && mp_x_coord(p) == mp_left_x(r) && mp_y_coord(p) == mp_left_y(r) && mp_x_coord(p) == mp_x_coord(r) && mp_y_coord(p) == mp_y_coord(r) && r != p) {
-				k_needed = mp_knot_info(p) - zero_off;
+			if (p->coord == p->right.coord && p->coord == r->left.coord && p->coord == r->coord && r != p) {
+				k_needed = mp_knot_info(p);
 				if (r == q) {
 					q = p;
 printf("@@@@@%d\n",__LINE__);
@@ -425,18 +415,18 @@ printf("@@@@@%d\n",__LINE__);
 	} while (q != c);
 
 
-	mp->spec_offset = mp_knot_info(c) - zero_off;
+	mp->spec_offset = mp_knot_info(c);
 	if (c->next == c) {
-		mp_knot_info(c) = zero_off + n;
+		mp_knot_info(c) = n;
 	} else {
-		fix_by(k_needed);
+		mp_knot_info(c) += k_needed;
 		while (w0 != h) {
-			fix_by(1);
+			mp_knot_info(c)++;
 			w0 = w0->next;
 		}
-		while (mp_knot_info(c) <= zero_off - n) fix_by(n);
-		while (mp_knot_info(c) > zero_off) fix_by(-n);
-		if ((mp_knot_info(c) != zero_off) && dy0 * dxin >= dx0 * dyin) fix_by(n);
+		while (mp_knot_info(c) <= -n) mp_knot_info(c) += n;
+		while (mp_knot_info(c) > 0) mp_knot_info(c) -= n;
+		if (mp_knot_info(c) && dy0 * dxin >= dx0 * dyin) mp_knot_info(c) += n;
 	}
 	return c;
 }
@@ -450,8 +440,7 @@ printf("@@@@@%d\n",__LINE__);
 
 
 void mp_print_spec(struct mp_knot *cur_spec, struct mp_knot *cur_pen) {
-	struct mp_knot *p, *q, *w;
-	p = cur_spec;
+	struct mp_knot *p = cur_spec, *q, *w;
 	w = mp_pen_walk(cur_pen, mp->spec_offset);
 	printf("Envelope spec\n(%g, %g) %% beginning with offset (%g, %g)", mp_x_coord(cur_spec), mp_y_coord(cur_spec), mp_x_coord(w), mp_y_coord(w));
 	do {
@@ -459,12 +448,12 @@ void mp_print_spec(struct mp_knot *cur_spec, struct mp_knot *cur_pen) {
 			q = p->next;
 			printf("\n   ..controls (%g, %g) and (%g, %g)\n .. (%g, %g)", mp_right_x(p), mp_right_y(p), mp_left_x(q), mp_left_y(q),mp_x_coord(q), mp_y_coord(q));
 			p = q;
-			if ((p == cur_spec) || (mp_knot_info(p) != zero_off)) break;
+			if (p == cur_spec || mp_knot_info(p)) break;
 		}
-		if (mp_knot_info(p) != zero_off) {
-			w = mp_pen_walk(w, (mp_knot_info(p) - zero_off));
+		if (mp_knot_info(p)) {
+			w = mp_pen_walk(w, mp_knot_info(p));
 			printf(" %% ");
-			if (mp_knot_info(p) > zero_off) printf("counter");
+			if (mp_knot_info(p) > 0) printf("counter");
 			printf("clockwise to offset (%g, %g)", mp_x_coord(w), mp_y_coord(w));
 		}
 	} while (p != cur_spec);
@@ -513,7 +502,6 @@ printf("@@@@@%d\n",__LINE__);
 		}
 	}
 
-
 	c = mp_offset_prep(c, h);
 	mp_print_spec(c, h);
 	h = mp_pen_walk(h, mp->spec_offset);
@@ -527,8 +515,8 @@ printf("@@@@@%d\n",__LINE__);
 		k = mp_knot_info(q);
 		k0 = k;
 		w0 = w;
-		if (k != zero_off) {
-			if (k < zero_off) {
+		if (k) {
+			if (k < 0) {
 				join_type = 2;
 			} else {
 				if ((q != mp->spec_p1) && (q != mp->spec_p2))
@@ -537,7 +525,7 @@ printf("@@@@@%d\n",__LINE__);
 					join_type = 3;
 				else
 					join_type = 2 - lcap;
-				if ((join_type == 0) || (join_type == 3)) {
+				if (join_type == 0 || join_type == 3) {
 					dxin = mp_x_coord(q) - mp_left_x(q);
 					dyin = mp_y_coord(q) - mp_left_y(q);
 					if ((dxin == 0) && (dyin == 0)) {
@@ -586,36 +574,31 @@ printf("@@@@@%d\n",__LINE__);
 						dxout /= tmp;
 						dyout /= tmp;
 printf("@@@@@%d\n",__LINE__);
-					};
+					}
 					if (join_type == 0) {
 						tmp = mp_take_fraction(miterlim, fraction_half + (mp_take_fraction(dxin, dxout) + mp_take_fraction(dyin, dyout)) / 2);
 						if (tmp < 1 && miterlim * tmp < 1) join_type = 2;
 printf("@@@@@%d\n",__LINE__);
 					}
 				}
-			};
+			}
 		}
 
-
-		mp_right_x(p) = mp_right_x(p) + mp_x_coord(w);
-		mp_right_y(p) = mp_right_y(p) + mp_y_coord(w);
-		mp_left_x(q) = mp_left_x(q) + mp_x_coord(w);
-		mp_left_y(q) = mp_left_y(q) + mp_y_coord(w);
-		mp_x_coord(q) = mp_x_coord(q) + mp_x_coord(w);
-		mp_y_coord(q) = mp_y_coord(q) + mp_y_coord(w);
-		mp_left_type(q) = mp_explicit;
-		mp_right_type(q) = mp_explicit;
-		while (k != zero_off) {
-			if (k > zero_off) {
+		p->right.coord += w->coord;
+		q->left.coord += w->coord;
+		q->coord += w->coord;
+		q->left.type = q->right.type = mp_explicit;
+		while (k) {
+			if (k > 0) {
 				w = w->next;
 				k--;
 			} else {
 				w = mp_prev_knot(w);
 				k++;
 			}
-			if (join_type == 1 || k == zero_off)
+			if (join_type == 1 || !k)
 				q = mp_insert_knot(q, qx + mp_x_coord(w), qy + mp_y_coord(w));
-		};
+		}
 		if (q != p->next) {
 			p = p->next;
 			if (join_type == 0 || join_type == 3) {
@@ -637,7 +620,7 @@ printf("@@@@@%d\n",__LINE__);
 
 printf("@@@@@%d\n",__LINE__);
 					max_ht = 0;
-					kk = zero_off;
+					kk = 0;
 					ww = w;
 					for (;;) {
 						if (kk > k0) {

@@ -702,22 +702,61 @@ int main() {
 	test(z11.left, 5.87875, -6.6394);
 	test(z9.right, 1.26079, -4.29094);
 	// show llcorner p; show urcorner p;
+	mp_reverse_path(&z9);
 	mp_path_bbox(&z9, &ll, &ur);
 	tesp(ll, -0.35213, -5.5248);
 	tesp(ur, 15.18112, 10.45483);
-	// show envelope pensquare scaled 2 of p;
-	// (1,1)..controls (0.75981,1.81746) and (0.64787,2.62543)
-	//  ..(0.64787,3.40826)..controls (0.64787,3.40826) and (0.64787,1.40826)
-	//   ..(0.64787,1.40826)..controls (0.64787,5.83273) and (4.22353,9.45483)
-	//    ..(8.43034,9.45483)..controls (8.43034,9.45483) and (6.43034,9.45483)
-	//     ..(6.43034,9.45483)..controls (7.26956,9.45483) and (8.13391,9.31068)
-	//      ..(9,9)..controls (12.43988,7.76605) and (14.18112,4.68874)
-	//       ..(14.18112,1.57939)..controls (14.18112,1.57939) and (14.18112,3.57939)
-	//        ..(14.18112,3.57939)..controls (14.18112,0.49522) and (12.46796,-2.62047)
-	//         ..(9,-4)..controls (8.10278,-4.3569) and (7.18204,-4.5248)
-	//          ..(6.27751,-4.5248)..controls (6.27751,-4.5248) and (8.27751,-4.5248)
-	//           ..(8.27751,-4.5248)..controls (5.02718,-4.5248) and (1.98631,-2.35678)
-	//            ..cycle
+	// show envelope pensquare scaled 2 of p; (MetaPost only)
+	// This gives the inner edge because the path goes clockwise.
+	p1.coord = -1-I;
+	p2.coord = 1-I;
+	p3.coord = 1+I;
+	p4.coord = -1+I;
+	e1 = mp_make_envelope(&z9, &p1, 1, 1, 1);
+	e2 = e1->next;
+	e3 = e2->next;
+	e4 = e3->next;
+	e5 = e4->next;
+	e6 = e5->next;
+	e7 = e6->next;
+	e8 = e7->next;
+	e9 = e8->next;
+	e10 = e9->next;
+	e11 = e10->next;
+	e12 = e11->next;
+	test(*e1, 1, 1);
+	test(e1->right, 0.75981, 1.81746);
+	test(e2->left, 0.64787, 2.62543);
+	test(*e2, 0.64787, 3.40826);
+	test(e2->right, 0.64787, 3.40826);
+	test(e3->left, 0.64787, 1.40826);
+	test(*e3, 0.64787, 1.40826);
+	test(e3->right, 0.64787, 5.83273);
+	test(e4->left, 4.22353, 9.45483);
+	test(*e4, 8.43034, 9.45483);
+	test(e4->right, 8.43034, 9.45483);
+	test(e5->left, 6.43034, 9.45483);
+	test(*e5, 6.43034, 9.45483);
+	test(e5->right, 7.26956, 9.45483);
+	test(e6->left, 8.13391, 9.31068);
+	test(*e6, 9, 9);
+	test(e6->right, 12.43988, 7.76605);
+	test(e7->left, 14.18112, 4.68874);
+	test(*e7, 14.18112, 1.57939);
+	test(e7->right, 14.18112, 1.57939);
+	test(e8->left, 14.18112, 3.57939);
+	test(*e8, 14.18112, 3.57939);
+	test(e8->right, 14.18112, 0.49522);
+	test(e9->left, 12.46796, -2.62047);
+	test(*e9, 9, -4);
+	test(e9->right, 8.10278, -4.3569);
+	test(e10->left, 7.18204, -4.5248);
+	test(*e10, 6.27751, -4.5248);
+	test(e10->right, 6.27751, -4.5248);
+	test(e11->left, 8.27751, -4.5248);
+	test(*e11, 8.27751, -4.5248);
+	test(e11->right, 5.02718, -4.5248);
+	test(e1->left, 1.98631, -2.35678);
 
 	// (1, 1) .. (4, 5) .. tension atleast 1  {curl 2}(1, 4)
 	// .. (19, -1){-1, -2} .. tension 3 and 4 .. (9, -8)
