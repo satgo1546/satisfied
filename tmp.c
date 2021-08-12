@@ -326,15 +326,7 @@ printf("@@@@@%d\n",__LINE__);
 }
 */
 
-struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h, int ljoin, int lcap, double miterlim) {
-	struct mp_knot *p, *q, *r, *q0;
-	struct mp_knot *w, *w0;
-	int k, k0;
-	double complex dzin = 0, dzout = 0;
-	double tmp;
-	double det;
-	double ht_x, ht_y;
-	double max_ht;
+struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h) {
 	mp->spec_p1 = NULL;
 	mp->spec_p2 = NULL;
 
@@ -372,8 +364,9 @@ printf("@@@@@%d\n",__LINE__);
 		while (mp->spec_offset < 0) {h=h->prev;mp->spec_offset++;}
 	}
 //mp_print_spec(c, h);
-	w = h;
-	p = c;
+	struct mp_knot *p = c, *q, *q0;
+	struct mp_knot *w = h, *w0;
+	int k, k0;
 	do {
 		q = p->next;
 		q0 = q;
@@ -381,64 +374,6 @@ printf("@@@@@%d\n",__LINE__);
 		k = mp_knot_info(q);
 		k0 = k;
 		w0 = w;
-		int join_type = 0;
-		if (k < 0) {
-			join_type = 2;
-		} else if (k > 0) {
-			if (q != mp->spec_p1 && q != mp->spec_p2) {
-				join_type = ljoin;
-			} else if (lcap == 2) {
-				join_type = 3;
-			} else {
-				join_type = 2 - lcap;
-			}
-			if (join_type == 0 || join_type == 3) {
-				dzin = q->coord - q->left.coord;
-				if (!dzin) {
-					dzin = q->coord - p->right.coord;
-printf("@@@@@%d\n",__LINE__);
-					if (!dzin) {
-						dzin = q->coord - p->coord;
-printf("@@@@@%d\n",__LINE__);
-						if (p != c) {
-							dzin += w->coord;
-printf("@@@@@%d\n",__LINE__);
-						}
-					}
-				}
-				tmp = cabs(dzin);
-				if (!tmp) {
-					join_type = 2;
-printf("@@@@@%d\n",__LINE__);
-				} else {
-					dzin /= tmp;
-
-					dzout = q->right.coord - q->coord;
-					if (!dzout) {
-						r = q->next;
-						dzout = r->left.coord - q->coord;
-printf("@@@@@%d\n",__LINE__);
-						if (!dzout) {
-							dzout = r->coord - q->coord;
-printf("@@@@@%d\n",__LINE__);
-						}
-					}
-					if (q == c) {
-						dzout -= -h->coord;
-printf("@@@@@%d\n",__LINE__);
-					}
-					tmp = cabs(dzout);
-					assert(tmp); // tmp = 0 → degenerate spec
-					dzout /= tmp;
-printf("@@@@@%d\n",__LINE__);
-				}
-				if (join_type == 0) {
-					tmp = miterlim * (creal(dzin * conj(dzout)) + 1) / 2;
-					if (tmp < 1 && miterlim * tmp < 1) join_type = 2;
-printf("@@@@@%d\n",__LINE__);
-				}
-			}
-		}
 
 		p->right.coord += w->coord;
 		q->left.coord += w->coord;
@@ -452,54 +387,11 @@ printf("@@@@@%d\n",__LINE__);
 				w = mp_prev_knot(w);
 				k++;
 			}
-			if (join_type == 1 || !k)
+			if (k0 >= 0 || !k) {
 				q = mp_insert_knot(q, creal(qx) + mp_x_coord(w), cimag(qx) + mp_y_coord(w));
-		}
-		if (q != p->next) {
-			p = p->next;
-			if (join_type == 0 || join_type == 3) {
-				if (join_type == 0) {
-					det = cimag(conj(dzin) * dzout);
-printf("@@@@@%d\n",__LINE__);
-					if (fabs(det) < 1e-4) {
-						r = NULL;
-printf("@@@@@%d\n",__LINE__);
-					} else {
-						tmp = cimag(conj(q->coord - p->coord) * dzout) / det;
-printf("@@@@@%d\n",__LINE__);
-						r = mp_insert_knot(p, mp_x_coord(p) + tmp * creal(dzin), mp_y_coord(p) + tmp * cimag(dzin));
-					}
-				} else {
-					ht_x = mp_y_coord(w) - mp_y_coord(w0);
-					ht_y = mp_x_coord(w0) - mp_x_coord(w);
-
-printf("@@@@@%d\n",__LINE__);
-					max_ht = 0;
-					struct mp_knot *ww = w;
-					for (int kk = 0; ; ) {
-						if (kk > k0) {
-							ww = ww->next;
-							kk--;
-printf("@@@@@%d\n",__LINE__);
-						} else {
-							ww = mp_prev_knot(ww);
-printf("@@@@@%d\n",__LINE__);
-							kk++;
-						}
-						if (kk == k0) break;
-						tmp = (mp_x_coord(ww) - mp_x_coord(w0)) * ht_x + (mp_y_coord(ww) - mp_y_coord(w0)) * ht_y;
-printf("@@@@@%d\n",__LINE__);
-						if (tmp > max_ht) max_ht = tmp;
-					}
-					tmp = mp_make_fraction(max_ht, mp_take_fraction(creal(dzin), ht_x) + mp_take_fraction(cimag(dzin), ht_y));
-					r = mp_insert_knot(p, mp_x_coord(p) + tmp * creal(dzin), mp_y_coord(p) + tmp * cimag(dzin));
-printf("@@@@@%d\n",__LINE__);
-					tmp = mp_make_fraction(max_ht, mp_take_fraction(creal(dzout), ht_x) + mp_take_fraction(cimag(dzout), ht_y));
-					r = mp_insert_knot(r, mp_x_coord(q) + tmp * creal(dzout), mp_y_coord(q) + tmp * creal(dzout));
-				}
-				if (r) r->right.coord = r->coord;
 			}
 		}
+		if (q != p->next) p = p->next;
 		p = q;
 	} while (q0 != c);
 	return c;

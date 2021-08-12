@@ -605,7 +605,7 @@ int main() {
 	p2.next = &p3;p3.prev = &p2;
 	p3.next = &p4;p4.prev = &p3;
 	p4.next = &p1;p1.prev = &p4;
-	struct mp_knot *e1 = mp_make_envelope(&z7, &p1, 1, 1, 1);
+	struct mp_knot *e1 = mp_make_envelope(&z7, &p1);
 	struct mp_knot *e2 = e1->next;
 	struct mp_knot *e3 = e2->next;
 	struct mp_knot *e4 = e3->next;
@@ -712,7 +712,7 @@ int main() {
 	p2.coord = 1-I;
 	p3.coord = 1+I;
 	p4.coord = -1+I;
-	e1 = mp_make_envelope(&z9, &p1, 1, 1, 1);
+	e1 = mp_make_envelope(&z9, &p1);
 	e2 = e1->next;
 	e3 = e2->next;
 	e4 = e3->next;
