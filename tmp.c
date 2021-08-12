@@ -89,6 +89,7 @@ struct mp_knot *mp_insert_knot(struct mp_knot *q, double x, double y) {
 	return r;
 }
 
+// Walk k steps around a pen from w.
 struct mp_knot *mp_pen_walk(struct mp_knot *w, int k) {
 	if (k > 0) while (k > 0) {
 		w = mp_next_knot(w);
@@ -100,8 +101,11 @@ struct mp_knot *mp_pen_walk(struct mp_knot *w, int k) {
 	return w;
 }
 
+// Decide how many pen offsets to go away from w in order to find the offset for dz.
+// w is assumed to be the offset for some direction from which the angle to dz in the sense determined by ccw is less than or equal to 180°.
 int mp_get_turn_amt(struct mp_knot *w, double complex dz, bool clockwise) {
 	int s = 0;
+	// If the pen polygon has only two edges, they could both be parallel to dz. Care must be taken to stop after crossing the first such edge to avoid an infinite loop.
 	if (clockwise) {
 		struct mp_knot *ww = mp_prev_knot(w);
 		while (cimag(dz * conj(ww->coord - w->coord)) > 0) {
@@ -129,12 +133,9 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double complex z0,
 		double t1 = cimag(conj(z1) * dw);
 		double t2 = cimag(conj(z2) * dw);
 		double t = mp_crossing_point(fmax(0, cimag(conj(z0) * dw)), t1, t2);
-		if (t >= 1) {
-			if (turn_amt <= 0) return;
-			t = 1;
-		}
+		if (t >= 1 && turn_amt <= 0) return;
 
-		mp_split_cubic(p, t);
+		mp_split_cubic(p, fmin(1, t));
 		p = p->next;
 		mp_knot_info(p) = rise;
 		turn_amt--;
@@ -158,29 +159,23 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double complex z0,
 		w = ww;
 	}
 }
-static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
-	int n = 0;
-	struct mp_knot *p = h, *q, *q0, *r, *w, *ww;
-	int turn_amt;
 
-	double t0, t1, t2;
-	double complex dz, dz0 = 0;
-	#define dy cimag(dz)
-	#define dx creal(dz)
-	double t;
+// Given a pointer c to a cyclic path, and an array of vertices of a pen polygon, the mp_offset_prep routine changes the path into cubics that are associated with particular pen offsets.
+// Thus if the cubic between p and q is associated with the kth offset and the cubic between q and r has offset l then mp_info(q) = l − k.
+// After overwriting the type information with offset differences, we no longer have a true path so we refer to the knot list returned by offset prep as an “envelope spec.” Since an envelope spec only determines relative changes in pen offsets, mp_offset_prep sets a global variable mp->spec_offset to the relative change from the first vertex to the first offset.
+static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *vertices, int vertex_count) {
+	struct mp_knot *p = vertices, *q, *r, *w;
 
-	double u0, u1, v0, v1;
-	double ss = 0;
-	int d_sign;
-
+	vertex_count = 0;
 	do {
-		n++;
+		vertex_count++;
 		p = p->next;
-	} while (p != h);
+	} while (p != vertices);
 
-	double complex dzin = h->next->coord - mp_prev_knot(h)->coord;
-	if (!dzin) dzin = I * (h->coord - mp_prev_knot(h)->coord);
-	struct mp_knot *w0 = h, *c0 = c;
+	double complex dzin = p->next->coord - mp_prev_knot(p)->coord;
+	double complex dz0;
+	if (!dzin) dzin = I * (p->coord - mp_prev_knot(p)->coord);
+	struct mp_knot *w0 = vertices, *c0 = c;
 	p = c;
 	int k_needed = 0;
 	do {
@@ -194,83 +189,66 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *h) {
 		double complex z2 = q->coord - q->left.coord;
 		if (!z0 && !z1 && !z2) goto NOT_FOUND;
 
-		dz = z0 ? z0 : z1 ? z1 : z2;
+		double complex dz = z0 ? z0 : z1 ? z1 : z2;
 		if (p == c) dz0 = dz;
 
-		turn_amt = mp_get_turn_amt(w0, dz, cimag(dzin * conj(dz)) > 0);
+		int turn_amt = mp_get_turn_amt(w0, dz, cimag(dzin * conj(dz)) > 0);
 		w = mp_pen_walk(w0, turn_amt);
 		w0 = w;
 		mp_knot_info(p) += turn_amt;
 		dzin = z2 ? z2 : z1 ? z1 : z0;
 
-		d_sign = cimag(dzin * conj(dz));
+		int d_sign = cimag(dzin * conj(dz));
 		d_sign = (d_sign > 0) - (d_sign < 0);
 		if (!d_sign) {
-			u0 = mp_x_coord(q) - mp_x_coord(p);
-			u1 = mp_y_coord(q) - mp_y_coord(p);
-			int tmp1 = dx * u1 - u0 * dy;
-			int tmp2 = u0 * cimag(dzin) - creal(dzin) * u1;
-			d_sign = ((tmp1>0)-(tmp1<0) + (tmp2>0)-(tmp2<0)) / 2;
+			// We check rotation direction by looking at the vector connecting the current node with the next.
+			// If its angle with incoming and outgoing tangents has the same sign, we pick this as d_sign, since it means we have a flex, not a cusp. Otherwise we proceed to the cusp code.
+			double complex tmp0 = q->coord - p->coord;
+			double tmp1 = cimag(conj(dz) * tmp0);
+			double tmp2 = cimag(dzin * conj(tmp0));
+			d_sign = ((tmp1 > 0) - (tmp1 < 0) + (tmp2 > 0) - (tmp2 < 0)) / 2;
 printf("@@@@@%d\n",__LINE__);
 		}
+		// If the cubic almost has a cusp, it is a numerically ill-conditioned problem to decide which way it loops around but that's OK as long we're consistent.
 		if (!d_sign) d_sign = creal(dz) ? (creal(dz) > 0) - (creal(dz) < 0) : (cimag(dz) > 0) - (cimag(dz) < 0);
 
-		t0 = cimag(conj(z0) * z2) / 2;
-		t1 = cimag(conj(z1) * (z0 + z2)) / 2;
-		if (!t0) t0 = d_sign;
-		#define x1 creal(z1)
-		#define y1 cimag(z1)
-		#define x2 creal(z2)
-		#define y2 cimag(z2)
-		#define x0 creal(z0)
-		#define y0 cimag(z0)
-		if (t0 > 0) {
-			t = mp_crossing_point(t0, t1, -t0);
-			u0 = t_of_the_way(x0, x1);
-			u1 = t_of_the_way(x1, x2);
-			v0 = t_of_the_way(y0, y1);
-			v1 = t_of_the_way(y1, y2);
-		} else {
-			t = mp_crossing_point(-t0, t1, t0);
-			u0 = t_of_the_way(x2, x1);
-			u1 = t_of_the_way(x1, x0);
-			v0 = t_of_the_way(y2, y1);
-			v1 = t_of_the_way(y1, y0);
-		}
-		ss = (x0 + x2) * t_of_the_way(u0, u1) + (y0 + y2) * t_of_the_way(v0, v1);
+		// Make ss negative if and only if the total change in direction is more than 180°.
+		double t0 = cimag(conj(z0) * z2) / 2;
+		double t1 = cimag(conj(z1) * (z0 + z2)) / 2;
+		if (!t0) t0 = d_sign; // Path reversal always negates d_sign.
+		double t = mp_crossing_point(fabs(t0), t1, -fabs(t0));
+		double complex u0 = t_of_the_way(t > 0 ? z0 : z2, z1);
+		double complex u1 = t_of_the_way(z1, t > 0 ? z2 : z0);
+		// To make stroke envelopes work properly, reversing the path should always change the sign of turn_amt.
 		turn_amt = mp_get_turn_amt(w, dzin, d_sign < 0);
-		if (ss < 0) turn_amt -= d_sign * n;
+		if (creal(conj(z0 + z2) * t_of_the_way(u0, u1)) < 0) turn_amt -= d_sign * vertex_count;
 
-		ww = mp_prev_knot(w);
+		struct mp_knot *ww = mp_prev_knot(w);
 
 		double complex dw = ww->coord - w->coord;
 		t1 = cimag(conj(z1) * dw);
-		t2 = cimag(conj(z2) * dw);
+		double t2 = cimag(conj(z2) * dw);
 		t = mp_crossing_point(fmax(0, cimag(conj(z0) * dw)), t1, t2);
+		// At this point, the direction of the incoming pen edge is -dw. When the component of d(t) perpendicular to -dw crosses zero, we need to decide whether the directions are parallel or antiparallel.
+		// We can test this by finding the dot product of d(t) and -dw, but this should be avoided when the value of turn_amt already determines the answer.
+		// If t2 < 0, there is one crossing and it is antiparallel only if turn_amt ≥ 0.
+		// If turn_amt < 0, there should always be at least one crossing and the first crossing cannot be antiparallel.
 		if (turn_amt >= 0) {
-			if (t2 < 0) {
+			if (t2 < 0 || creal(conj(dw) * t_of_the_way(t_of_the_way(z0, z1), t_of_the_way(z1, z2))) > 0) {
 				t = nextafter(1, INFINITY);
-			} else {
-				u0 = t_of_the_way(x0, x1);
-				u1 = t_of_the_way(x1, x2);
-				ss = -creal(dw) / t_of_the_way(u0, u1);
-				v0 = t_of_the_way(y0, y1);
-				v1 = t_of_the_way(y1, y2);
-				ss -= cimag(dw) * t_of_the_way(v0, v1);
-				if (ss < 0) t = nextafter(1, INFINITY);
 			}
 		} else if (t > 1) {
 			t = 1;
 		}
+		// Split the cubic into at most three parts with respect to d[k−1] and apply mp_fin_offset_prep to each part.
 		if (t > 1) {
 			mp_fin_offset_prep(p, w, z0, z1, z2, 1, turn_amt);
 		} else {
-			double complex z0a, z1a, z2a;
 			mp_split_cubic(p, t);
 			r = mp_next_knot(p);
-			z1a = t_of_the_way(z0, z1);
+			double complex z1a = t_of_the_way(z0, z1);
 			z1 = t_of_the_way(z1, z2);
-			z2a = t_of_the_way(z1a, z1);
+			double complex z2a = t_of_the_way(z1a, z1);
 			mp_fin_offset_prep(p, w, z0, z1a, z2a, 1, 0);
 			z0 = z2a;
 			mp_knot_info(r) = -1;
@@ -280,9 +258,9 @@ printf("@@@@@%d\n",__LINE__);
 
 				mp_split_cubic(r, t);
 				mp_knot_info(r->next) = 1;
-				z1a = t_of_the_way(z1, z2);
+				double complex z1a = t_of_the_way(z1, z2);
 				z1 = t_of_the_way(z0, z1);
-				z0a = t_of_the_way(z1, z1a);
+				double complex z0a = t_of_the_way(z1, z1a);
 				mp_fin_offset_prep(r->next, w, z0a, z1a, z2, 1, turn_amt);
 				z2 = z0a;
 				mp_fin_offset_prep(r, ww, z0, z1, z2, -1, 0);
@@ -291,12 +269,14 @@ printf("@@@@@%d\n",__LINE__);
 			}
 		}
 		w0 = mp_pen_walk(w0, turn_amt);
-NOT_FOUND:
+NOT_FOUND:;
 
-		q0 = q;
+		struct mp_knot *q0 = q;
 		do {
 			r = p->next;
+			// Remove any “dead” cubics that might have been introduced by the splitting process.
 			if (p->coord == p->right.coord && p->coord == r->left.coord && p->coord == r->coord && r != p) {
+				// Update the data structures to merge r into p.
 				k_needed = mp_knot_info(p);
 				if (r == q) {
 					q = p;
@@ -315,27 +295,30 @@ printf("@@@@@%d\n",__LINE__);
 				if (r == mp->spec_p2) mp->spec_p2 = p;
 printf("@@@@@%d\n",__LINE__);
 				r = p;
+				// Remove the cubic following p.
 				mp_remove_cubic(p);
 			}
 			p = r;
 		} while (p != q);
-
+		// Be careful not to remove the only cubic in a cycle.
 		if (q != q0 && (q != c || c == c0)) q = q->next;
 	} while (q != c);
 
-
+	// When we're all done, the final offset is w0 and the final curve direction is dzin.
+	// With this knowledge of the incoming direction at c, we can correct mp_info(c) which was erroneously based on an
+	// incoming offset of the first vertex.
 	mp->spec_offset = mp_knot_info(c);
 	if (c->next == c) {
-		mp_knot_info(c) = n;
+		mp_knot_info(c) = vertex_count;
 	} else {
 		mp_knot_info(c) += k_needed;
-		while (w0 != h) {
+		while (w0 != vertices) {
 			mp_knot_info(c)++;
 			w0 = w0->next;
 		}
-		while (mp_knot_info(c) <= -n) mp_knot_info(c) += n;
-		while (mp_knot_info(c) > 0) mp_knot_info(c) -= n;
-		if (mp_knot_info(c) && cimag(dzin * conj(dz0)) <= 0) mp_knot_info(c) += n;
+		while (mp_knot_info(c) <= -vertex_count) mp_knot_info(c) += vertex_count;
+		while (mp_knot_info(c) > 0) mp_knot_info(c) -= vertex_count;
+		if (mp_knot_info(c) && cimag(dzin * conj(dz0)) <= 0) mp_knot_info(c) += vertex_count;
 	}
 	return c;
 }
@@ -345,21 +328,19 @@ printf("@@@@@%d\n",__LINE__);
 
 
 void mp_print_spec(struct mp_knot *cur_spec, struct mp_knot *cur_pen) {
-	struct mp_knot *p = cur_spec, *q, *w;
-	w = mp_pen_walk(cur_pen, mp->spec_offset);
+	struct mp_knot *p = cur_spec, *q, *w = mp_pen_walk(cur_pen, mp->spec_offset);
 	printf("Envelope spec\n(%g, %g) %% beginning with offset (%g, %g)", mp_x_coord(cur_spec), mp_y_coord(cur_spec), mp_x_coord(w), mp_y_coord(w));
 	do {
-		for (;;) {
+		do {
 			q = p->next;
-			printf("\n   ..controls (%g, %g) and (%g, %g)\n .. (%g, %g)", mp_right_x(p), mp_right_y(p), mp_left_x(q), mp_left_y(q),mp_x_coord(q), mp_y_coord(q));
+			printf("\n .. controls (%g, %g) and (%g, %g)\n .. (%g, %g)", creal(p->right.coord), cimag(p->right.coord), creal(q->left.coord), cimag(q->left.coord), creal(q->coord), cimag(q->coord));
 			p = q;
-			if (p == cur_spec || mp_knot_info(p)) break;
-		}
+		} while (p != cur_spec && mp_knot_info(p));
 		if (mp_knot_info(p)) {
 			w = mp_pen_walk(w, mp_knot_info(p));
 			printf(" %% ");
 			if (mp_knot_info(p) > 0) printf("counter");
-			printf("clockwise to offset (%g, %g)", mp_x_coord(w), mp_y_coord(w));
+			printf("clockwise to offset (%g, %g)", creal(w->coord), cimag(w->coord));
 		}
 	} while (p != cur_spec);
 	puts("\n & cycle");
@@ -377,8 +358,6 @@ struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h, int ljoin
 	double det;
 	double ht_x, ht_y;
 	double max_ht;
-	int kk;
-	struct mp_knot *ww;
 	mp->spec_p1 = NULL;
 	mp->spec_p2 = NULL;
 
@@ -402,8 +381,8 @@ printf("@@@@@%d\n",__LINE__);
 		}
 	}
 
-	c = mp_offset_prep(c, h);
-	mp_print_spec(c, h);
+	c = mp_offset_prep(c, h, 0);
+//mp_print_spec(c, h);
 	h = mp_pen_walk(h, mp->spec_offset);
 	w = h;
 	p = c;
@@ -509,9 +488,8 @@ printf("@@@@@%d\n",__LINE__);
 
 printf("@@@@@%d\n",__LINE__);
 					max_ht = 0;
-					kk = 0;
-					ww = w;
-					for (;;) {
+					struct mp_knot *ww = w;
+					for (int kk = 0;;) {
 						if (kk > k0) {
 							ww = ww->next;
 							kk--;
