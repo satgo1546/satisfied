@@ -89,47 +89,40 @@ struct mp_knot *mp_insert_knot(struct mp_knot *q, double x, double y) {
 	return r;
 }
 
-// Walk k steps around a pen from w.
-struct mp_knot *mp_pen_walk(struct mp_knot *w, int k) {
-	if (k > 0) while (k > 0) {
-		w = mp_next_knot(w);
-		k--;
-	} else while (k < 0) {
-		w = mp_prev_knot(w);
-		k++;
-	}
-	return w;
-}
+// The C operator / on integers truncates towards zero (quot) since C99.
+// quot: truncated → 0; (a quot b) × b + (a rem b) = a
+// div: truncated → −∞; (a div b) × b + (a mod b) = a
+#define mod(a, b) (((a) % (b) + (b)) % (b))
 
 // Decide how many pen offsets to go away from w in order to find the offset for dz.
 // w is assumed to be the offset for some direction from which the angle to dz in the sense determined by ccw is less than or equal to 180°.
-int mp_get_turn_amt(struct mp_knot *w, double complex dz, bool clockwise) {
+int mp_get_turn_amt(double complex vertices[], int vertex_count, int w, double complex dz, bool clockwise) {
 	int s = 0;
 	// If the pen polygon has only two edges, they could both be parallel to dz. Care must be taken to stop after crossing the first such edge to avoid an infinite loop.
 	if (clockwise) {
-		struct mp_knot *ww = mp_prev_knot(w);
-		while (cimag(dz * conj(ww->coord - w->coord)) > 0) {
+		int ww = mod(w - 1, vertex_count);
+		while (cimag(dz * conj(vertices[ww] - vertices[w])) > 0) {
 			s--;
 			w = ww;
-			ww = mp_prev_knot(ww);
+			ww = mod(ww - 1, vertex_count);
 		}
 	} else {
-		struct mp_knot *ww = mp_next_knot(w);
-		while (cimag(dz * conj(ww->coord - w->coord)) > 0) {
+		int ww = mod(w + 1, vertex_count);
+		while (cimag(dz * conj(vertices[ww] - vertices[w])) > 0) {
 			s++;
 			w = ww;
-			ww = mp_next_knot(ww);
+			ww = mod(ww + 1, vertex_count);
 		}
-		if (cimag(dz * conj(ww->coord - w->coord)) == 0) s++;
+		if (cimag(dz * conj(vertices[ww] - vertices[w])) == 0) s++;
 	}
 	return s;
 }
 
-void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double complex z0, double complex z1, double complex z2, int rise, int turn_amt) {
+void mp_fin_offset_prep(struct mp_knot *p, double complex vertices[], int vertex_count, int w, double complex z0, double complex z1, double complex z2, int rise, int turn_amt) {
 	struct mp_knot *q = mp_next_knot(p);
 	for (;;) {
-		struct mp_knot *ww = rise > 0 ? mp_next_knot(w) : mp_prev_knot(w);
-		double complex dw = ww->coord - w->coord;
+		int ww = mod(rise > 0 ? w + 1 : w - 1, vertex_count);
+		double complex dw = vertices[ww] - vertices[w];
 		double t1 = cimag(conj(z1) * dw);
 		double t2 = cimag(conj(z2) * dw);
 		double t = mp_crossing_point(fmax(0, cimag(conj(z0) * dw)), t1, t2);
@@ -163,20 +156,11 @@ void mp_fin_offset_prep(struct mp_knot *p, struct mp_knot *w, double complex z0,
 // Given a pointer c to a cyclic path, and an array of vertices of a pen polygon, the mp_offset_prep routine changes the path into cubics that are associated with particular pen offsets.
 // Thus if the cubic between p and q is associated with the kth offset and the cubic between q and r has offset l then mp_info(q) = l − k.
 // After overwriting the type information with offset differences, we no longer have a true path so we refer to the knot list returned by offset prep as an “envelope spec.” Since an envelope spec only determines relative changes in pen offsets, mp_offset_prep sets a global variable mp->spec_offset to the relative change from the first vertex to the first offset.
-static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *vertices, int vertex_count) {
-	struct mp_knot *p = vertices, *q, *r, *w;
-
-	vertex_count = 0;
-	do {
-		vertex_count++;
-		p = p->next;
-	} while (p != vertices);
-
-	double complex dzin = p->next->coord - mp_prev_knot(p)->coord;
-	double complex dz0;
-	if (!dzin) dzin = I * (p->coord - mp_prev_knot(p)->coord);
-	struct mp_knot *w0 = vertices, *c0 = c;
-	p = c;
+static struct mp_knot *mp_offset_prep(struct mp_knot *c, double complex vertices[], int vertex_count) {
+	struct mp_knot *p = c, *q, *r, *c0 = c;
+	int w, w0 = 0; // indices into vertices
+	double complex dz0, dzin = vertices[1] - vertices[vertex_count - 1];
+	if (!dzin) dzin = I * (vertices[0] - vertices[vertex_count - 1]);
 	int k_needed = 0;
 	do {
 		q = p->next;
@@ -192,9 +176,8 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, struct mp_knot *vertice
 		double complex dz = z0 ? z0 : z1 ? z1 : z2;
 		if (p == c) dz0 = dz;
 
-		int turn_amt = mp_get_turn_amt(w0, dz, cimag(dzin * conj(dz)) > 0);
-		w = mp_pen_walk(w0, turn_amt);
-		w0 = w;
+		int turn_amt = mp_get_turn_amt(vertices, vertex_count, w0, dz, cimag(dzin * conj(dz)) > 0);
+		w = w0 = mod(w0 + turn_amt, vertex_count);
 		mp_knot_info(p) += turn_amt;
 		dzin = z2 ? z2 : z1 ? z1 : z0;
 
@@ -220,12 +203,12 @@ printf("@@@@@%d\n",__LINE__);
 		double complex u0 = t_of_the_way(t > 0 ? z0 : z2, z1);
 		double complex u1 = t_of_the_way(z1, t > 0 ? z2 : z0);
 		// To make stroke envelopes work properly, reversing the path should always change the sign of turn_amt.
-		turn_amt = mp_get_turn_amt(w, dzin, d_sign < 0);
+		turn_amt = mp_get_turn_amt(vertices, vertex_count, w, dzin, d_sign < 0);
 		if (creal(conj(z0 + z2) * t_of_the_way(u0, u1)) < 0) turn_amt -= d_sign * vertex_count;
 
-		struct mp_knot *ww = mp_prev_knot(w);
+		int ww = mod(w - 1, vertex_count);
 
-		double complex dw = ww->coord - w->coord;
+		double complex dw = vertices[ww] - vertices[w];
 		t1 = cimag(conj(z1) * dw);
 		double t2 = cimag(conj(z2) * dw);
 		t = mp_crossing_point(fmax(0, cimag(conj(z0) * dw)), t1, t2);
@@ -242,14 +225,14 @@ printf("@@@@@%d\n",__LINE__);
 		}
 		// Split the cubic into at most three parts with respect to d[k−1] and apply mp_fin_offset_prep to each part.
 		if (t > 1) {
-			mp_fin_offset_prep(p, w, z0, z1, z2, 1, turn_amt);
+			mp_fin_offset_prep(p, vertices, vertex_count, w, z0, z1, z2, 1, turn_amt);
 		} else {
 			mp_split_cubic(p, t);
 			r = mp_next_knot(p);
 			double complex z1a = t_of_the_way(z0, z1);
 			z1 = t_of_the_way(z1, z2);
 			double complex z2a = t_of_the_way(z1a, z1);
-			mp_fin_offset_prep(p, w, z0, z1a, z2a, 1, 0);
+			mp_fin_offset_prep(p, vertices, vertex_count, w, z0, z1a, z2a, 1, 0);
 			z0 = z2a;
 			mp_knot_info(r) = -1;
 			if (turn_amt >= 0) {
@@ -261,14 +244,14 @@ printf("@@@@@%d\n",__LINE__);
 				double complex z1a = t_of_the_way(z1, z2);
 				z1 = t_of_the_way(z0, z1);
 				double complex z0a = t_of_the_way(z1, z1a);
-				mp_fin_offset_prep(r->next, w, z0a, z1a, z2, 1, turn_amt);
+				mp_fin_offset_prep(r->next, vertices, vertex_count, w, z0a, z1a, z2, 1, turn_amt);
 				z2 = z0a;
-				mp_fin_offset_prep(r, ww, z0, z1, z2, -1, 0);
+				mp_fin_offset_prep(r, vertices, vertex_count, ww, z0, z1, z2, -1, 0);
 			} else {
-				mp_fin_offset_prep(r, ww, z0, z1, z2, -1, -1 - turn_amt);
+				mp_fin_offset_prep(r, vertices, vertex_count, ww, z0, z1, z2, -1, -1 - turn_amt);
 			}
 		}
-		w0 = mp_pen_walk(w0, turn_amt);
+		w0 = mod(w0 + turn_amt, vertex_count);
 NOT_FOUND:;
 
 		struct mp_knot *q0 = q;
@@ -311,11 +294,7 @@ printf("@@@@@%d\n",__LINE__);
 	if (c->next == c) {
 		mp_knot_info(c) = vertex_count;
 	} else {
-		mp_knot_info(c) += k_needed;
-		while (w0 != vertices) {
-			mp_knot_info(c)++;
-			w0 = w0->next;
-		}
+		mp_knot_info(c) += k_needed + vertex_count - w0;
 		while (mp_knot_info(c) <= -vertex_count) mp_knot_info(c) += vertex_count;
 		while (mp_knot_info(c) > 0) mp_knot_info(c) -= vertex_count;
 		if (mp_knot_info(c) && cimag(dzin * conj(dz0)) <= 0) mp_knot_info(c) += vertex_count;
@@ -327,7 +306,7 @@ printf("@@@@@%d\n",__LINE__);
 
 
 
-void mp_print_spec(struct mp_knot *cur_spec, struct mp_knot *cur_pen) {
+/*void mp_print_spec(struct mp_knot *cur_spec, struct mp_knot *cur_pen) {
 	struct mp_knot *p = cur_spec, *q, *w = mp_pen_walk(cur_pen, mp->spec_offset);
 	printf("Envelope spec\n(%g, %g) %% beginning with offset (%g, %g)", mp_x_coord(cur_spec), mp_y_coord(cur_spec), mp_x_coord(w), mp_y_coord(w));
 	do {
@@ -345,7 +324,7 @@ void mp_print_spec(struct mp_knot *cur_spec, struct mp_knot *cur_pen) {
 	} while (p != cur_spec);
 	puts("\n & cycle");
 }
-
+*/
 
 struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h, int ljoin, int lcap, double miterlim) {
 	struct mp_knot *p, *q, *r, *q0;
@@ -381,9 +360,20 @@ printf("@@@@@%d\n",__LINE__);
 		}
 	}
 
-	c = mp_offset_prep(c, h, 0);
+	{
+		//TODO!vertices
+		int vertex_count = 0;
+		struct mp_knot *p = h;
+		double complex v[100];
+		do {
+			v[vertex_count++] = p->coord;
+			p = p->next;
+		} while (p != h);
+		c = mp_offset_prep(c, v, vertex_count);
+		while (mp->spec_offset > 0) {h=h->next;mp->spec_offset--;}
+		while (mp->spec_offset < 0) {h=h->prev;mp->spec_offset++;}
+	}
 //mp_print_spec(c, h);
-	h = mp_pen_walk(h, mp->spec_offset);
 	w = h;
 	p = c;
 	do {
