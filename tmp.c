@@ -329,9 +329,7 @@ printf("@@@@@%d\n",__LINE__);
 struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h, int ljoin, int lcap, double miterlim) {
 	struct mp_knot *p, *q, *r, *q0;
 	struct mp_knot *w, *w0;
-	double qx, qy;
 	int k, k0;
-	int join_type = 0;
 	double complex dzin = 0, dzout = 0;
 	double tmp;
 	double det;
@@ -379,66 +377,65 @@ printf("@@@@@%d\n",__LINE__);
 	do {
 		q = p->next;
 		q0 = q;
-		qx = mp_x_coord(q);
-		qy = mp_y_coord(q);
+		double complex qx = q->coord;
 		k = mp_knot_info(q);
 		k0 = k;
 		w0 = w;
-		if (k) {
-			if (k < 0) {
-				join_type = 2;
+		int join_type = 0;
+		if (k < 0) {
+			join_type = 2;
+		} else if (k > 0) {
+			if (q != mp->spec_p1 && q != mp->spec_p2) {
+				join_type = ljoin;
+			} else if (lcap == 2) {
+				join_type = 3;
 			} else {
-				if ((q != mp->spec_p1) && (q != mp->spec_p2))
-					join_type = ljoin;
-				else if (lcap == 2)
-					join_type = 3;
-				else
-					join_type = 2 - lcap;
-				if (join_type == 0 || join_type == 3) {
-					dzin = q->coord - q->left.coord;
+				join_type = 2 - lcap;
+			}
+			if (join_type == 0 || join_type == 3) {
+				dzin = q->coord - q->left.coord;
+				if (!dzin) {
+					dzin = q->coord - p->right.coord;
+printf("@@@@@%d\n",__LINE__);
 					if (!dzin) {
-						dzin = q->coord - p->right.coord;
+						dzin = q->coord - p->coord;
 printf("@@@@@%d\n",__LINE__);
-						if (!dzin) {
-							dzin = q->coord - p->coord;
+						if (p != c) {
+							dzin += w->coord;
 printf("@@@@@%d\n",__LINE__);
-							if (p != c) {
-								dzin += w->coord;
-printf("@@@@@%d\n",__LINE__);
-							}
 						}
 					}
-					tmp = cabs(dzin);
-					if (!tmp) {
-						join_type = 2;
+				}
+				tmp = cabs(dzin);
+				if (!tmp) {
+					join_type = 2;
 printf("@@@@@%d\n",__LINE__);
-					} else {
-						dzin /= tmp;
+				} else {
+					dzin /= tmp;
 
-						dzout = q->right.coord - q->coord;
+					dzout = q->right.coord - q->coord;
+					if (!dzout) {
+						r = q->next;
+						dzout = r->left.coord - q->coord;
+printf("@@@@@%d\n",__LINE__);
 						if (!dzout) {
-							r = q->next;
-							dzout = r->left.coord - q->coord;
-printf("@@@@@%d\n",__LINE__);
-							if (!dzout) {
-								dzout = r->coord - q->coord;
-printf("@@@@@%d\n",__LINE__);
-							}
-						}
-						if (q == c) {
-							dzout -= -h->coord;
+							dzout = r->coord - q->coord;
 printf("@@@@@%d\n",__LINE__);
 						}
-						tmp = cabs(dzout);
-						assert(tmp); // tmp = 0 → degenerate spec
-						dzout /= tmp;
+					}
+					if (q == c) {
+						dzout -= -h->coord;
 printf("@@@@@%d\n",__LINE__);
 					}
-					if (join_type == 0) {
-						tmp = miterlim * (creal(dzin * conj(dzout)) + 1) / 2;
-						if (tmp < 1 && miterlim * tmp < 1) join_type = 2;
+					tmp = cabs(dzout);
+					assert(tmp); // tmp = 0 → degenerate spec
+					dzout /= tmp;
 printf("@@@@@%d\n",__LINE__);
-					}
+				}
+				if (join_type == 0) {
+					tmp = miterlim * (creal(dzin * conj(dzout)) + 1) / 2;
+					if (tmp < 1 && miterlim * tmp < 1) join_type = 2;
+printf("@@@@@%d\n",__LINE__);
 				}
 			}
 		}
@@ -456,7 +453,7 @@ printf("@@@@@%d\n",__LINE__);
 				k++;
 			}
 			if (join_type == 1 || !k)
-				q = mp_insert_knot(q, qx + mp_x_coord(w), qy + mp_y_coord(w));
+				q = mp_insert_knot(q, creal(qx) + mp_x_coord(w), cimag(qx) + mp_y_coord(w));
 		}
 		if (q != p->next) {
 			p = p->next;
@@ -479,7 +476,7 @@ printf("@@@@@%d\n",__LINE__);
 printf("@@@@@%d\n",__LINE__);
 					max_ht = 0;
 					struct mp_knot *ww = w;
-					for (int kk = 0;;) {
+					for (int kk = 0; ; ) {
 						if (kk > k0) {
 							ww = ww->next;
 							kk--;
