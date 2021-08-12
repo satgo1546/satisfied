@@ -39,16 +39,15 @@
 
 struct {
 	int spec_offset; // number of pen edges between h and the initial offset
-	struct mp_knot *spec_p1, *spec_p2, *path_tail;
 } mpd, *mp = &mpd;
 
 void mp_remove_cubic(struct mp_knot *p) {
-	struct mp_knot *q = mp_next_knot(p);
-	mp_next_knot(p) = mp_next_knot(q);
-	mp_right_x(p) = mp_right_x(q);
-	mp_right_y(p) = mp_right_y(q);
+	struct mp_knot *q = p->next;
+	p->next = q->next;
+	p->right = q->right;
 	//free(q);
 }
+/*
 static struct mp_knot *mp_htap_ypoc(struct mp_knot *p) {
 	struct mp_knot *q = malloc(sizeof(*q));
 	struct mp_knot *pp = p, *qq = q, *rr;
@@ -72,6 +71,7 @@ static struct mp_knot *mp_htap_ypoc(struct mp_knot *p) {
 		pp = mp_next_knot(pp);
 	}
 }
+*/
 struct mp_knot *mp_insert_knot(struct mp_knot *q, double x, double y) {
 	struct mp_knot *r = malloc(sizeof(*r));
 	mp_next_knot(r) = mp_next_knot(q);
@@ -274,8 +274,6 @@ printf("@@@@@%d\n",__LINE__);
 					c = p;
 printf("@@@@@%d\n",__LINE__);
 				}
-				if (r == mp->spec_p1) mp->spec_p1 = p;
-				if (r == mp->spec_p2) mp->spec_p2 = p;
 printf("@@@@@%d\n",__LINE__);
 				r = p;
 				// Remove the cubic following p.
@@ -327,26 +325,38 @@ printf("@@@@@%d\n",__LINE__);
 */
 
 struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h) {
-	mp->spec_p1 = NULL;
-	mp->spec_p2 = NULL;
-
-	if (mp_left_type(c) == mp_endpoint) {
-		mp->spec_p1 = mp_htap_ypoc(c);
-		mp->spec_p2 = mp->path_tail;
-		mp->spec_p2->next = mp->spec_p1->next;
-		mp->spec_p1->next = c;
-		mp_remove_cubic(mp->spec_p1);
-		c = mp->spec_p1;
-		if (c != c->next) {
-			mp_remove_cubic(mp->spec_p2);
+	if (c->left.type == mp_endpoint) {
+		// Do doublepath c.
+		struct mp_knot *p = c, *p2;
+		int n = 0;
+		for (;;) {
+			n++;
+			if (p->next == c) {
+				p2 = p;
+				break;
+			}
+			p = p->next;
+		}
+		p = c;
+		struct mp_knot *p1 = malloc(n * sizeof(*p1));
+		do {
+			*p1 = *p;
+			p1->next = p1 + 1;
+			p1++;
+			p = p->next;
+		} while (p != c);
+		p1 -= n;
+		p1[n - 1].next = p1;
+		p2->next = mp_reverse_path(p1);
+		p1->next = c;
+		mp_remove_cubic(p1);
+		c = p1;
+		if (c == c->next) {
+			// Make c look like a cycle of length one.
+			c->left.type = c->right.type = mp_explicit;
+			c->left.coord = c->right.coord = c->coord;
 		} else {
-			mp_left_type(c) = mp_explicit;
-			mp_right_type(c) = mp_explicit;
-printf("@@@@@%d\n",__LINE__);
-			mp_left_x(c) = mp_x_coord(c);
-			mp_left_y(c) = mp_y_coord(c);
-			mp_right_x(c) = mp_x_coord(c);
-			mp_right_y(c) = mp_y_coord(c);
+			mp_remove_cubic(p2);
 		}
 	}
 
