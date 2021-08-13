@@ -37,41 +37,13 @@
 #define one_eighty_deg (acos(-1))
 #define three_sixty_deg (2 * acos(-1))
 
-struct {
-	int spec_offset; // number of pen edges between h and the initial offset
-} mpd, *mp = &mpd;
+static int spec_offset; // number of pen edges between h and the initial offset
 
 void mp_remove_cubic(struct mp_knot *p) {
-	struct mp_knot *q = p->next;
-	p->next = q->next;
-	p->right = q->right;
-	//free(q);
+	p->right = p->next->right;
+	p->next = p->next->next;
 }
-/*
-static struct mp_knot *mp_htap_ypoc(struct mp_knot *p) {
-	struct mp_knot *q = malloc(sizeof(*q));
-	struct mp_knot *pp = p, *qq = q, *rr;
-	for (;;) {
-		mp_right_type(qq) = mp_left_type(pp);
-		mp_left_type(qq) = mp_right_type(pp);
-		mp_x_coord(qq) = mp_x_coord(pp);
-		mp_y_coord(qq) = mp_y_coord(pp);
-		mp_right_x(qq) = mp_left_x(pp);
-		mp_right_y(qq) = mp_left_y(pp);
-		mp_left_x(qq) = mp_right_x(pp);
-		mp_left_y(qq) = mp_right_y(pp);
-		if (mp_next_knot(pp) == p) {
-			mp_next_knot(q) = qq;
-			mp->path_tail = pp;
-			return q;
-		}
-		rr = malloc(sizeof(*rr));
-		mp_next_knot(rr) = qq;
-		qq = rr;
-		pp = mp_next_knot(pp);
-	}
-}
-*/
+
 struct mp_knot *mp_insert_knot(struct mp_knot *q, double x, double y) {
 	struct mp_knot *r = malloc(sizeof(*r));
 	mp_next_knot(r) = mp_next_knot(q);
@@ -288,7 +260,7 @@ printf("@@@@@%d\n",__LINE__);
 	// When we're all done, the final offset is w0 and the final curve direction is dzin.
 	// With this knowledge of the incoming direction at c, we can correct mp_info(c) which was erroneously based on an
 	// incoming offset of the first vertex.
-	mp->spec_offset = mp_knot_info(c);
+	spec_offset = mp_knot_info(c);
 	if (c->next == c) {
 		mp_knot_info(c) = vertex_count;
 	} else {
@@ -324,7 +296,7 @@ printf("@@@@@%d\n",__LINE__);
 }
 */
 
-struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h) {
+struct mp_knot *mp_make_envelope(struct mp_knot *c, double complex *vertices, int vertex_count) {
 	if (c->left.type == mp_endpoint) {
 		// Do doublepath c.
 		struct mp_knot *p = c, *p2;
@@ -360,22 +332,11 @@ struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h) {
 		}
 	}
 
-	{
-		//TODO!vertices
-		int vertex_count = 0;
-		struct mp_knot *p = h;
-		double complex v[100];
-		do {
-			v[vertex_count++] = p->coord;
-			p = p->next;
-		} while (p != h);
-		c = mp_offset_prep(c, v, vertex_count);
-		while (mp->spec_offset > 0) {h=h->next;mp->spec_offset--;}
-		while (mp->spec_offset < 0) {h=h->prev;mp->spec_offset++;}
-	}
+	c = mp_offset_prep(c, vertices, vertex_count);
+	int h = mod(spec_offset, vertex_count);
 //mp_print_spec(c, h);
 	struct mp_knot *p = c, *q, *q0;
-	struct mp_knot *w = h, *w0;
+	int w = h;
 	int k, k0;
 	do {
 		q = p->next;
@@ -383,22 +344,21 @@ struct mp_knot *mp_make_envelope(struct mp_knot *c, struct mp_knot *h) {
 		double complex qx = q->coord;
 		k = mp_knot_info(q);
 		k0 = k;
-		w0 = w;
 
-		p->right.coord += w->coord;
-		q->left.coord += w->coord;
-		q->coord += w->coord;
+		p->right.coord += vertices[w];
 		q->left.type = q->right.type = mp_explicit;
+		q->left.coord += vertices[w];
+		q->coord += vertices[w];
 		while (k) {
 			if (k > 0) {
-				w = w->next;
+				w = mod(w + 1, vertex_count);
 				k--;
 			} else {
-				w = mp_prev_knot(w);
+				w = mod(w - 1, vertex_count);
 				k++;
 			}
 			if (k0 >= 0 || !k) {
-				q = mp_insert_knot(q, creal(qx) + mp_x_coord(w), cimag(qx) + mp_y_coord(w));
+				q = mp_insert_knot(q, creal(qx + vertices[w]), cimag(qx + vertices[w]));
 			}
 		}
 		if (q != p->next) p = p->next;

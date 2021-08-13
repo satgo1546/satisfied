@@ -597,15 +597,8 @@ int main() {
 	z7.right.coord = 36.94897 + 63.99768 * I;
 	z8.left.coord = 248.95918 + 26.63225 * I;
 	// show envelope makepen ((0, -1) -- (3, -1) -- (6, 1) -- (1, 2) -- cycle) of p; (MetaPost only)
-	struct mp_knot p1 = {.coord = -I};
-	struct mp_knot p2 = {.coord = 3-I};
-	struct mp_knot p3 = {.coord = 6+I};
-	struct mp_knot p4 = {.coord = 1+2*I};
-	p1.next = &p2;p2.prev = &p1;
-	p2.next = &p3;p3.prev = &p2;
-	p3.next = &p4;p4.prev = &p3;
-	p4.next = &p1;p1.prev = &p4;
-	struct mp_knot *e1 = mp_make_envelope(&z7, &p1);
+	double complex p1[4] = {-I, 3-I, 6+I, 1+2*I};
+	struct mp_knot *e1 = mp_make_envelope(&z7, p1, 4);
 	struct mp_knot *e2 = e1->next;
 	struct mp_knot *e3 = e2->next;
 	struct mp_knot *e4 = e3->next;
@@ -708,11 +701,11 @@ int main() {
 	tesp(ur, 15.18112, 10.45483);
 	// show envelope pensquare scaled 2 of p; (MetaPost only)
 	// This gives the inner edge because the path goes clockwise.
-	p1.coord = -1-I;
-	p2.coord = 1-I;
-	p3.coord = 1+I;
-	p4.coord = -1+I;
-	e1 = mp_make_envelope(&z9, &p1);
+	p1[0] = -1-I;
+	p1[1] = 1-I;
+	p1[2] = 1+I;
+	p1[3] = -1+I;
+	e1 = mp_make_envelope(&z9, p1, 4);
 	e2 = e1->next;
 	e3 = e2->next;
 	e4 = e3->next;
