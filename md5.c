@@ -6,43 +6,36 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
-#include <fcntl.h>
-#include <io.h>
 
-int main() {
-	setmode(fileno(stdin), O_BINARY);
-	bool f = false;
+const unsigned char *md5(FILE *fp) {
+	static uint32_t k[64];
+	if (!*k) for (int i = 0; i < 64; i++) k[i] = ldexp(fabs(sin(i + 1)), 32);
+
+	bool done = false;
 	uint32_t a = 0x67452301, b = 0xefcdab89, c = ~a, d = ~b;
 	uint32_t hash[4] = {a, b, c, d}, s[16];
 	uint32_t x = a, n = 0;
-	int z = 0;
-	uint64_t g = 0;
-	static uint32_t k[64];
-	if (!*k) for (int i = 0; i < 64; i++) k[i] = ldexp(fabs(sin(i + 1)), 32);
-	while (!f) {
+
+	rewind(fp);
+	while (!done) {
 		int ch = 0;
-		if (z >= 0) {
-			z = getchar();
-			if (z >= 0) {
-				g += 8;
-				ch = z;
-			} else {
-				ch = 0x80;
-			}
+		if (!feof(fp)) {
+			ch = fgetc(fp);
+			if (feof(fp)) ch = 0x80;
 		}
 		s[n / 4] = x = (x >> 8) | (ch << 24);
 		n++;
 		if (n == 56) {
-			s[14] = g;
-			s[15] = g >> 32;
-			f = z < 0;
+			s[14] = ftell(fp) << 3;
+			s[15] = ftell(fp) >> 29;
+			done = feof(fp);
 		}
-		if (n == 64 || (n == 56 && f)) {
+		if (n == 64 || (n == 56 && done)) {
 			for (int i = 0; i < 64; i++) {
-				const int j = i / 16;
-				x = a + s[("AECG"[j] * i + "0150"[j]) & 15] + k[i];
-				switch (j) {
+				x = a + s[("AECG"[i / 16] * i + "0150"[i / 16]) & 15] + k[i];
+				switch (i / 16) {
 				case 0: x += ((c ^ d) & b) ^ d; break;
 				case 1: x += ((b ^ c) & d) ^ c; break;
 				case 2: x += b ^ c ^ d; break;
@@ -61,8 +54,34 @@ int main() {
 			n = 0;
 		}
 	}
-	for (int i = 0; i < 32; i++) {
-		putchar("0123456789abcdef"[hash[i / 8] >> (i % 8 * 4 ^ 4) & 15]);
+
+	static unsigned char ret[16];
+	for (int i = 0; i < 16; i++) {
+		ret[i] = hash[i / 4] >> (i % 4 * 8);
 	}
-	putchar('\n');
+	return ret;
+}
+//
+int main() {
+	#define testmd5(str, ...) do {\
+		FILE *f = tmpfile(); \
+		fputs(str, f); \
+		if (memcmp(md5(f), (const unsigned char []) {__VA_ARGS__}, 16) != 0) \
+			printf("MD5 test failure on line %d with \"%s\"\n", __LINE__, str); \
+		fclose(f); \
+	} while (0);
+	testmd5("",
+		0xd4, 0x1d, 0x8c, 0xd9, 0x8f, 0x00, 0xb2, 0x04, 0xe9, 0x80, 0x09, 0x98, 0xec, 0xf8, 0x42, 0x7e);
+	testmd5("a",
+		0x0c, 0xc1, 0x75, 0xb9, 0xc0, 0xf1, 0xb6, 0xa8, 0x31, 0xc3, 0x99, 0xe2, 0x69, 0x77, 0x26, 0x61);
+	testmd5("abc",
+		0x90, 0x01, 0x50, 0x98, 0x3c, 0xd2, 0x4f, 0xb0, 0xd6, 0x96, 0x3f, 0x7d, 0x28, 0xe1, 0x7f, 0x72);
+	testmd5("message digest",
+		0xf9, 0x6b, 0x69, 0x7d, 0x7c, 0xb7, 0x93, 0x8d, 0x52, 0x5a, 0x2f, 0x31, 0xaa, 0xf1, 0x61, 0xd0);
+	testmd5("abcdefghijklmnopqrstuvwxyz",
+		0xc3, 0xfc, 0xd3, 0xd7, 0x61, 0x92, 0xe4, 0x00, 0x7d, 0xfb, 0x49, 0x6c, 0xca, 0x67, 0xe1, 0x3b);
+	testmd5("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+		0xd1, 0x74, 0xab, 0x98, 0xd2, 0x77, 0xd9, 0xf5, 0xa5, 0x61, 0x1c, 0x2c, 0x9f, 0x41, 0x9d, 0x9f);
+	testmd5("12345678901234567890123456789012345678901234567890123456789012345678901234567890",
+		0x57, 0xed, 0xf4, 0xa2, 0x2b, 0xe3, 0xc9, 0x55, 0xac, 0x49, 0xda, 0x2e, 0x21, 0x07, 0xb6, 0x7a);
 }
