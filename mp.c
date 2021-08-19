@@ -25,19 +25,22 @@ double reduce_angle(double x) {
 struct mp_knot {
 	double complex coord;
 	struct {
-		// Non-explicit control points will be chosen based on “tension” parameters in the left.tension and right.tension fields. The “atleast” option is represented by negative tension values.
-		enum mp_knot_type {
-			mp_endpoint = 0,
-			// If right.type = mp_explicit, the Bézier control point for leaving this knot has already been computed; it is in the mp_right_x and mp_right_y fields.
-			mp_explicit,
-			// If right.type = mp_given, the curve should leave the knot in a nonzero direction stored as an angle in right given.
-			mp_given,
-			// If right.type = mp_curl, the curve should leave the knot in a direction depending on the angle at which it enters the next knot and on the curl parameter stored in right curl.
-			mp_curl,
-			// If right.type = mp_open, the curve should leave the knot in the same direction it entered; METAPOST will figure out a suitable direction.
-			mp_open,
-			mp_end_cycle, // for internal use
-		} type;
+		union {
+			// Non-explicit control points will be chosen based on “tension” parameters in the left.tension and right.tension fields. The “atleast” option is represented by negative tension values.
+			enum mp_knot_type {
+				mp_endpoint = 0,
+				// If right.type = mp_explicit, the Bézier control point for leaving this knot has already been computed; it is in the mp_right_x and mp_right_y fields.
+				mp_explicit,
+				// If right.type = mp_given, the curve should leave the knot in a nonzero direction stored as an angle in right given.
+				mp_given,
+				// If right.type = mp_curl, the curve should leave the knot in a direction depending on the angle at which it enters the next knot and on the curl parameter stored in right curl.
+				mp_curl,
+				// If right.type = mp_open, the curve should leave the knot in the same direction it entered; METAPOST will figure out a suitable direction.
+				mp_open,
+				mp_end_cycle, // for internal use in mp_make_choices
+			} type;
+			int info; // for internal use in mp_make_envelope
+		};
 		static_assert(mp_given > mp_explicit, "enum mp_knot_type");
 		static_assert(mp_curl > mp_explicit, "enum mp_knot_type");
 		static_assert(mp_open > mp_explicit, "enum mp_knot_type");
@@ -51,9 +54,6 @@ struct mp_knot {
 		};
 	} left, right;
 	struct mp_knot *next;
-
-	struct mp_knot *prev;//tmp
-	int info;//tmp
 };
 
 void mp_print_path(const struct mp_knot *const head) {

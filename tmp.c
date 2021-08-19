@@ -7,14 +7,12 @@
 #define mp_next_knot(A)     (A)->next
 #define mp_left_type(A)     (A)->left.type
 #define mp_right_type(A)     (A)->right.type
-#define mp_prev_knot(A)     (A)->prev
-#define mp_knot_info(A)     (A)->info
-#define left_curl mp_left_x
-#define left_given mp_left_x
-#define left_tension mp_left_y
-#define right_curl mp_right_x
-#define right_given mp_right_x
-#define right_tension mp_right_y
+
+// some_knot->left.info can be written as some_knot->pen_offset for offset differences.
+// This overwrites left.type, so we no longer have a true path. We refer to the knot list returned by mp_offset_prep as an “envelope spec”.
+// right.info remains unused.
+#define pen_offset left.info
+
 #define incr(A) (A) = (A) + 1
 #define decr(A) (A) = (A) - 1
 #define negate(A) (A) = -(A)
@@ -68,7 +66,7 @@ void mp_fin_offset_prep(struct mp_knot *p, double complex vertices[], int vertex
 
 		mp_split_cubic(p, fmin(1, t));
 		p = p->next;
-		mp_knot_info(p) = rise ? 1 : -1;
+		p->pen_offset = rise ? 1 : -1;
 		turn_amt--;
 		double complex v = t_of_the_way(z0, z1);
 		z1 = t_of_the_way(z1, z2);
@@ -78,10 +76,10 @@ void mp_fin_offset_prep(struct mp_knot *p, double complex vertices[], int vertex
 			t = fmin(1, mp_crossing_point(0, -t1, -t2));
 			turn_amt++;
 			if (t == 1 && p->next != q) {
-				mp_knot_info(p->next) += rise ? -1 : 1;
+				p->next->pen_offset += rise ? -1 : 1;
 			} else {
 				mp_split_cubic(p, t);
-				mp_knot_info(p->next) = rise ? -1 : 1;
+				p->next->pen_offset = rise ? -1 : 1;
 				v = t_of_the_way(z1, z2);
 				z1 = t_of_the_way(z0, z1);
 				z2 = t_of_the_way(z1, v);
@@ -92,7 +90,7 @@ void mp_fin_offset_prep(struct mp_knot *p, double complex vertices[], int vertex
 }
 
 // Given a pointer c to a cyclic path, and an array of vertices of a pen polygon, the mp_offset_prep routine changes the path into cubics that are associated with particular pen offsets.
-// Thus if the cubic between p and q is associated with the kth offset and the cubic between q and r has offset l then mp_info(q) = l − k.
+// Thus if the cubic between p and q is associated with the kth offset and the cubic between q and r has offset l then q->pen_offset = l − k.
 // After overwriting the type information with offset differences, we no longer have a true path so we refer to the knot list returned by offset prep as an “envelope spec.” Since an envelope spec only determines relative changes in pen offsets, mp_offset_prep sets a global variable mp->spec_offset to the relative change from the first vertex to the first offset.
 static struct mp_knot *mp_offset_prep(struct mp_knot *c, double complex vertices[], int vertex_count) {
 	struct mp_knot *p = c, *q, *r, *c0 = c;
@@ -103,7 +101,7 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, double complex vertices
 	do {
 		q = p->next;
 
-		mp_knot_info(p) = k_needed;
+		p->pen_offset = k_needed;
 		k_needed = 0;
 
 		double complex z0 = p->right.coord - p->coord;
@@ -116,7 +114,7 @@ static struct mp_knot *mp_offset_prep(struct mp_knot *c, double complex vertices
 
 		int turn_amt = mp_get_turn_amt(vertices, vertex_count, w0, dz, cimag(dzin * conj(dz)) > 0);
 		w = w0 = mod(w0 + turn_amt, vertex_count);
-		mp_knot_info(p) += turn_amt;
+		p->pen_offset += turn_amt;
 		dzin = z2 ? z2 : z1 ? z1 : z0;
 
 		int d_sign = cimag(dzin * conj(dz));
@@ -172,13 +170,13 @@ printf("@@@@@%d\n",__LINE__);
 			double complex z2a = t_of_the_way(z1a, z1);
 			mp_fin_offset_prep(p, vertices, vertex_count, w, z0, z1a, z2a, true, 0);
 			z0 = z2a;
-			mp_knot_info(r) = -1;
+			r->pen_offset = -1;
 			if (turn_amt >= 0) {
 				t1 = fmin(0, t_of_the_way(t1, t2));
 				t = fmin(1, mp_crossing_point(0, -t1, -t2));
 
 				mp_split_cubic(r, t);
-				mp_knot_info(r->next) = 1;
+				r->next->pen_offset = 1;
 				double complex z1a = t_of_the_way(z1, z2);
 				z1 = t_of_the_way(z0, z1);
 				double complex z0a = t_of_the_way(z1, z1a);
@@ -198,17 +196,17 @@ NOT_FOUND:;
 			// Remove any “dead” cubics that might have been introduced by the splitting process.
 			if (p->coord == p->right.coord && p->coord == r->left.coord && p->coord == r->coord && r != p) {
 				// Update the data structures to merge r into p.
-				k_needed = mp_knot_info(p);
+				k_needed = p->pen_offset;
 				if (r == q) {
 					q = p;
 printf("@@@@@%d\n",__LINE__);
 				} else {
-					mp_knot_info(p) = k_needed + mp_knot_info(r);
+					p->pen_offset = k_needed + r->pen_offset;
 					k_needed = 0;
 printf("@@@@@%d\n",__LINE__);
 				}
 				if (r == c) {
-					mp_knot_info(p) = mp_knot_info(c);
+					p->pen_offset = c->pen_offset;
 					c = p;
 printf("@@@@@%d\n",__LINE__);
 				}
@@ -225,14 +223,13 @@ printf("@@@@@%d\n",__LINE__);
 	} while (q != c);
 
 	// When we're all done, the final offset is w0 and the final curve direction is dzin.
-	// With this knowledge of the incoming direction at c, we can correct mp_info(c) which was erroneously based on an
-	// incoming offset of the first vertex.
-	spec_offset = mp_knot_info(c);
+	// With this knowledge of the incoming direction at c, we can correct c->pen_offset which was erroneously based on an incoming offset of the first vertex.
+	spec_offset = c->pen_offset;
 	if (c->next == c) {
-		mp_knot_info(c) = vertex_count;
+		c->pen_offset = vertex_count;
 	} else {
-		mp_knot_info(c) = mod(mp_knot_info(c) + k_needed - w0, vertex_count);
-		if (mp_knot_info(c) && cimag(dzin * conj(dz0)) > 0) mp_knot_info(c) -= vertex_count;
+		c->pen_offset = mod(c->pen_offset + k_needed - w0, vertex_count);
+		if (c->pen_offset && cimag(dzin * conj(dz0)) > 0) c->pen_offset -= vertex_count;
 	}
 	return c;
 }
@@ -317,7 +314,7 @@ struct mp_knot *mp_make_envelope(struct mp_knot *c, double complex *vertices, in
 		struct mp_knot *q = p->next;
 		q0 = q;
 		double complex qc = q->coord;
-		int k = mp_knot_info(q);
+		int k = q->pen_offset;
 
 		p->right.coord += vertices[w];
 		q->left.type = q->right.type = mp_explicit;
