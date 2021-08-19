@@ -231,10 +231,8 @@ printf("@@@@@%d\n",__LINE__);
 	if (c->next == c) {
 		mp_knot_info(c) = vertex_count;
 	} else {
-		mp_knot_info(c) += k_needed + vertex_count - w0;
-		while (mp_knot_info(c) <= -vertex_count) mp_knot_info(c) += vertex_count;
-		while (mp_knot_info(c) > 0) mp_knot_info(c) -= vertex_count;
-		if (mp_knot_info(c) && cimag(dzin * conj(dz0)) <= 0) mp_knot_info(c) += vertex_count;
+		mp_knot_info(c) = mod(mp_knot_info(c) + k_needed - w0, vertex_count);
+		if (mp_knot_info(c) && cimag(dzin * conj(dz0)) > 0) mp_knot_info(c) -= vertex_count;
 	}
 	return c;
 }
@@ -264,46 +262,56 @@ printf("@@@@@%d\n",__LINE__);
 */
 
 struct mp_knot *mp_make_envelope(struct mp_knot *c, double complex *vertices, int vertex_count) {
+	int n = 0;
+	struct mp_knot *p = c;
+	do {
+		n++;
+		p = p->next;
+	} while (p != c);
+	struct mp_knot *knots = malloc(n * vertex_count * 2 * sizeof(struct mp_knot));
+	int allocated_knot_count = 0;
+	#define new_knot (&knots[allocated_knot_count++])
+	// Make a copy of the path c.
+	do {
+		struct mp_knot *pp = new_knot;
+		*pp = *p;
+		pp->next = pp + 1;
+		p = p->next;
+	} while (p != c);
 	if (c->left.type == mp_endpoint) {
 		// Do doublepath c.
-		struct mp_knot *p = c, *p2;
-		int n = 0;
-		for (;;) {
-			n++;
-			if (p->next == c) {
-				p2 = p;
-				break;
-			}
-			p = p->next;
-		}
-		p = c;
-		struct mp_knot *p1 = malloc(n * sizeof(*p1));
+		// p1 and p2 corresponds to global variables mp->spec_p1 and mp->spec_p2 in MetaPost source.
+		//     knots → knots->next → … → p2
+		//     ↑                          ↓
+		//     p1 ← p1+1 ←   …   ← p2->next
+		struct mp_knot *p1 = &knots[allocated_knot_count], *p2 = p1 - 1;
 		do {
-			*p1 = *p;
-			p1->next = p1 + 1;
-			p1++;
+			struct mp_knot *pp = new_knot;
+			*pp = *p;
+			pp->next = pp + 1;
 			p = p->next;
 		} while (p != c);
-		p1 -= n;
-		p1[n - 1].next = p1;
+		knots[allocated_knot_count - 1].next = p1;
 		p2->next = mp_reverse_path(p1);
-		p1->next = c->next;
-		p1->right = c->right;
-		c = p1;
-		if (c == c->next) {
-			// Make c look like a cycle of length one.
-			c->left.type = c->right.type = mp_explicit;
-			c->left.coord = c->right.coord = c->coord;
+		p1[1].next = knots;
+		knots->left = p1->left;
+		if (knots == knots->next) {
+			// Make the path look like a cycle of length one.
+			knots->left.type = knots->right.type = mp_explicit;
+			knots->left.coord = knots->right.coord = knots->coord;
 		} else {
 			p2->right = p2->next->right;
 			p2->next = p2->next->next;
 		}
+	} else {
+		knots[allocated_knot_count - 1].next = knots;
 	}
+	p = c = knots;
 
-	c = mp_offset_prep(c, vertices, vertex_count);
+	mp_offset_prep(c, vertices, vertex_count);
 	int h = mod(spec_offset, vertex_count);
 //mp_print_spec(c, h);
-	struct mp_knot *p = c, *q0;
+	struct mp_knot *q0;
 	int w = h;
 	do {
 		struct mp_knot *q = p->next;
@@ -317,13 +325,13 @@ struct mp_knot *mp_make_envelope(struct mp_knot *c, double complex *vertices, in
 		q->coord += vertices[w];
 		while (k) {
 			if (k > 0) {
-				w = mod(w + 1, vertex_count);
+				w = (w + 1) % vertex_count;
 				k--;
 			} else {
-				w = mod(w - 1, vertex_count);
+				w = (w + vertex_count - 1) % vertex_count;
 				k++;
 			}
-			struct mp_knot *r = malloc(sizeof(*r));
+			struct mp_knot *r = new_knot;
 			r->next = q->next;
 			q->next = r;
 			r->right = q->right;

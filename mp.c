@@ -150,7 +150,7 @@ static void mp_set_controls(struct mp_knot *p, struct mp_knot *q, double theta, 
 	p->right.coord = p->coord + delta_k * eit * rr;
 }
 
-// Search for “mock curvature” in the METAFONT source document for more details of the mathematics involved.
+// Search for “mock curvature” in the METAFONT source document (weave mf.web) for more details of the mathematics involved.
 static void mp_solve_choices(struct mp_knot *const p, struct mp_knot *const q, int n) {
 	struct mp_knot *r = NULL, *s = p, *t = p->next;
 	// Calculate the turning angles ψₖ and the distances.
@@ -647,6 +647,7 @@ int main() {
 	test(*e12, 401, 2);
 	test(e12->right, 249.95918, 28.63225);
 	test(e1->left, 37.94897, 65.99768);
+	free(e1);
 
 
 	// (0, 0) .. (10, 10) .. (10, -5) .. cycle
@@ -750,6 +751,7 @@ int main() {
 	test(*e11, 8.27751, -4.5248);
 	test(e11->right, 5.02718, -4.5248);
 	test(e1->left, 1.98631, -2.35678);
+	free(e1);
 
 	// (1, 1) .. (4, 5) .. tension atleast 1  {curl 2}(1, 4)
 	// .. (19, -1){-1, -2} .. tension 3 and 4 .. (9, -8)
