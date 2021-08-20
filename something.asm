@@ -2008,13 +2008,12 @@ vm:
 
 	; if (opcode = 0x09) pop(EDX)
 	; if (opcode = 0x01) pop(ESI)
-	xor bl, 0x09
-	cmovz edx, [esp]
-	setz al
-	xor bl, 0x08
-	cmovz esi, [esp]
-	setz ah
-	xor bl, 0x01
+	cmp bl, 0x09
+	cmove edx, [esp]
+	sete al
+	cmp bl, 0x01
+	cmove esi, [esp]
+	sete ah
 	or al, ah
 	and eax, 1
 	or ebp, eax
