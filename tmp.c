@@ -8,11 +8,6 @@
 #define mp_left_type(A)     (A)->left.type
 #define mp_right_type(A)     (A)->right.type
 
-// some_knot->left.info can be written as some_knot->pen_offset for offset differences.
-// This overwrites left.type, so we no longer have a true path. We refer to the knot list returned by mp_offset_prep as an “envelope spec”.
-// right.info remains unused.
-#define pen_offset left.info
-
 #define incr(A) (A) = (A) + 1
 #define decr(A) (A) = (A) - 1
 #define negate(A) (A) = -(A)
@@ -35,7 +30,10 @@
 #define one_eighty_deg (acos(-1))
 #define three_sixty_deg (2 * acos(-1))
 
-static int spec_offset; // number of pen edges between h and the initial offset
+// some_knot->left.info can be written as some_knot->pen_offset for offset differences.
+// This overwrites left.type, so we no longer have a true path. We refer to the knot list returned by mp_offset_prep as an “envelope spec”.
+// right.info remains unused.
+#define pen_offset left.info
 
 // The C operator / on integers truncates towards zero (quot) since C99.
 // quot: truncated → 0; (a quot b) × b + (a rem b) = a
@@ -91,8 +89,8 @@ void mp_fin_offset_prep(struct mp_knot *p, double complex vertices[], int vertex
 
 // Given a pointer c to a cyclic path, and an array of vertices of a pen polygon, the mp_offset_prep routine changes the path into cubics that are associated with particular pen offsets.
 // Thus if the cubic between p and q is associated with the kth offset and the cubic between q and r has offset l then q->pen_offset = l − k.
-// After overwriting the type information with offset differences, we no longer have a true path so we refer to the knot list returned by offset prep as an “envelope spec.” Since an envelope spec only determines relative changes in pen offsets, mp_offset_prep sets a global variable mp->spec_offset to the relative change from the first vertex to the first offset.
-static struct mp_knot *mp_offset_prep(struct mp_knot *c, double complex vertices[], int vertex_count) {
+// Since an envelope spec only determines relative changes in pen offsets, mp_offset_prep returns the number of pen edges between the first vertex and the initial offset.
+static int mp_offset_prep(struct mp_knot *c, double complex vertices[], int vertex_count) {
 	struct mp_knot *p = c, *q, *r, *c0 = c;
 	int w, w0 = 0; // indices into vertices
 	double complex dz0, dzin = vertices[1] - vertices[vertex_count - 1];
@@ -224,39 +222,15 @@ printf("@@@@@%d\n",__LINE__);
 
 	// When we're all done, the final offset is w0 and the final curve direction is dzin.
 	// With this knowledge of the incoming direction at c, we can correct c->pen_offset which was erroneously based on an incoming offset of the first vertex.
-	spec_offset = c->pen_offset;
+	int spec_offset = c->pen_offset;
 	if (c->next == c) {
 		c->pen_offset = vertex_count;
 	} else {
 		c->pen_offset = mod(c->pen_offset + k_needed - w0, vertex_count);
 		if (c->pen_offset && cimag(dzin * conj(dz0)) > 0) c->pen_offset -= vertex_count;
 	}
-	return c;
+	return spec_offset;
 }
-
-
-
-
-
-/*void mp_print_spec(struct mp_knot *cur_spec, struct mp_knot *cur_pen) {
-	struct mp_knot *p = cur_spec, *q, *w = mp_pen_walk(cur_pen, mp->spec_offset);
-	printf("Envelope spec\n(%g, %g) %% beginning with offset (%g, %g)", mp_x_coord(cur_spec), mp_y_coord(cur_spec), mp_x_coord(w), mp_y_coord(w));
-	do {
-		do {
-			q = p->next;
-			printf("\n .. controls (%g, %g) and (%g, %g)\n .. (%g, %g)", creal(p->right.coord), cimag(p->right.coord), creal(q->left.coord), cimag(q->left.coord), creal(q->coord), cimag(q->coord));
-			p = q;
-		} while (p != cur_spec && mp_knot_info(p));
-		if (mp_knot_info(p)) {
-			w = mp_pen_walk(w, mp_knot_info(p));
-			printf(" %% ");
-			if (mp_knot_info(p) > 0) printf("counter");
-			printf("clockwise to offset (%g, %g)", creal(w->coord), cimag(w->coord));
-		}
-	} while (p != cur_spec);
-	puts("\n & cycle");
-}
-*/
 
 struct mp_knot *mp_make_envelope(struct mp_knot *c, double complex *vertices, int vertex_count) {
 	int n = 0;
@@ -305,8 +279,7 @@ struct mp_knot *mp_make_envelope(struct mp_knot *c, double complex *vertices, in
 	}
 	p = c = knots;
 
-	mp_offset_prep(c, vertices, vertex_count);
-	int h = mod(spec_offset, vertex_count);
+	int h = mod(mp_offset_prep(c, vertices, vertex_count), vertex_count);
 //mp_print_spec(c, h);
 	struct mp_knot *q0;
 	int w = h;
