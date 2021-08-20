@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bits.c"
+
 // https://marcin-chwedczuk.github.io/a-closer-look-at-portable-executable-msdos-stub
 // http://www.ctyme.com/intr/rb-0088.htm
 // http://www.ctyme.com/intr/rb-0210.htm
@@ -34,97 +36,6 @@ const uint8_t dos_program[] = {
 	'd', 0x0c, 'e', 0x0e, '.', 0x0a,
 	'\r', 0x0b, '\n', 0x09, '\a', 0x0d,
 };
-
-void write8(FILE *f, uint8_t value) {
-	if (fputc(value, f) == EOF) {
-		perror("fputc");
-		exit(1);
-	}
-}
-
-void write16(FILE *f, uint16_t x) {
-	write8(f, x & 0xff);
-	write8(f, (x >> 8) & 0xff);
-}
-
-void write32(FILE *f, uint32_t x) {
-	write8(f, x & 0xff);
-	write8(f, (x >> 8) & 0xff);
-	write8(f, (x >> 16) & 0xff);
-	write8(f, (x >> 24) & 0xff);
-}
-
-/* Write a string to file, padded to 8 bytes. */
-void writestr8(FILE *file, const char *str) {
-	size_t len, i;
-
-	len = strlen(str);
-	assert(len <= 8 && "The string must fit in 8 bytes.");
-
-	for (i = 0; i < 8; i++) {
-		write8(file, i < len ? str[i] : 0);
-	}
-}
-
-/* Write a string to file, null-terminated and padded to 20 bytes. */
-void writestr20(FILE *file, const char *str) {
-	size_t len, i;
-
-	len = strlen(str);
-	assert(len <= 19 && "The string and terminator must fit in 20 bytes.");
-
-	for (i = 0; i < 20; i++) {
-		write8(file, i < len ? str[i] : 0);
-	}
-}
-
-/* Seek to offset in file. */
-void seek(FILE *file, long offset) {
-	if (fseek(file, offset, SEEK_SET) == -1) {
-		perror("fseek");
-		exit(1);
-	}
-}
-
-uint32_t align_to(uint32_t value, uint32_t alignment) {
-	value += alignment - 1;
-	value -= value % alignment;
-	return value;
-}
-
-size_t read_file(const char* filename, void** ptr) {
-	FILE* f = fopen(filename, "rb");
-	if (!f) {
-		perror("fopen");
-		exit(1);
-	}
-	if (fseek(f, 0, SEEK_END) != 0) {
-		perror("fseek");
-		exit(1);
-	}
-	long sz = ftell(f);
-	if (sz == -1L) {
-		perror("ftell");
-		exit(1);
-	}
-	if (fseek(f, 0, SEEK_SET) != 0) {
-		perror("fseek");
-		exit(1);
-	}
-	if (!(*ptr = malloc(sz))) {
-		perror("malloc");
-		exit(1);
-	}
-	if (fread(*ptr, 1, sz, f) != sz) {
-		perror("fread");
-		exit(1);
-	}
-	if (fclose(f) == EOF) {
-		perror("fclose");
-		exit(1);
-	}
-	return sz;
-}
 
 uint32_t rsrc_rva, rsrc_offset, rsrc_sz;
 struct {
