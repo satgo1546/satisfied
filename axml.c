@@ -86,14 +86,6 @@ void axml_begin_file(struct axml_file *this, const char *filename) {
 void axml_end_header(struct axml_file *this) {
 	if (this->inside_header) {
 		this->inside_header = false;
-
-		write16(this->contents, 0x0100); // RES_XML_START_NAMESPACE_TYPE
-		write16(this->contents, 16); // headerSize
-		write32(this->contents, 24); // size
-		write32(this->contents, 0); // lineNumber
-		write32(this->contents, -1); // comment
-		write32(this->contents, axml_intern(this, "android")); // prefix
-		write32(this->contents, axml_intern(this, "http://schemas.android.com/apk/res/android")); // uri
 	}
 }
 
@@ -101,14 +93,6 @@ void axml_end_file(struct axml_file *this) {
 	// A valid XML document must have a root tag.
 	assert(!this->inside_header);
 	assert(!this->stack_top);
-
-	write16(this->contents, 0x0101); // RES_XML_END_NAMESPACE_TYPE
-	write16(this->contents, 16); // headerSize
-	write32(this->contents, 24); // size
-	write32(this->contents, 0); // lineNumber
-	write32(this->contents, -1); // comment
-	write32(this->contents, axml_intern(this, "android")); // prefix
-	write32(this->contents, axml_intern(this, "http://schemas.android.com/apk/res/android")); // uri
 
 	const long file_start = ftell(this->fp);
 	write16(this->fp, 0x0003); // RES_XML_TYPE
@@ -230,7 +214,9 @@ void axml_set_attribute(struct axml_file *this, const char *ns, const char *name
 	this->stack[this->stack_top - 1].attribute_count++;
 	// The ns field points to the URI (instead of the name) of the desired namespace.
 	// aapt always shows the name whether the ns field points to the name or the URI.
-	write32(this->contents, axml_intern(this, ns ? "http://schemas.android.com/apk/res/android" : NULL)); // ns
+	// If the field is set incorrectly in AndroidManifest.xml, one will be greeted with the error “No value supplied for <android:name>” when installing the APK.
+	#define ANDROID_RESOURCES "http://schemas.android.com/apk/res/android"
+	write32(this->contents, axml_intern(this, ns && strcmp(ns, "android") == 0 ? ANDROID_RESOURCES : NULL)); // ns
 	write32(this->contents, axml_intern(this, name)); // name
 	write32(this->contents, axml_intern(this, raw_value)); // rawValue
 	write16(this->contents, 8); // typedValue.size
