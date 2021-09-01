@@ -56,6 +56,22 @@ struct mp_knot {
 	struct mp_knot *next;
 };
 
+// The METAFONT path specification
+//   z0 .. z1 .. tension atleast 1 .. {curl 2} z2
+//      .. z3 {-1, -2} .. tension 3 and 4
+//      .. z4 .. controls z45 and z54 .. z5
+// will be represented by the six knots
+//   ┌───────── left ─────────┐       ┌──────── right ─────────┐
+//   type     parameter tension coord type     parameter tension
+//   endpoint —         —       z0    curl     1.0       1.0
+//   open     —         1.0     z1    open     —         −1.0
+//   curl     2.0       −1.0    z2    curl     2.0       1.0
+//   given    π+atan(2) 1.0     z3    given    π+atan(2) 3.0
+//   open     —         4.0     z4    explicit x45*      y45*
+//   explicit x54*      y54*    z5    endpoint —         —
+// * (x45, y45) and (x54, y54) are stored in the left.coord field and the right.coord field respectively. They should occupy the same storage as the parameter and tension fields.
+// If a path is cyclic, there will be no knots with endpoint types.
+
 void mp_print_path(const struct mp_knot *const head) {
 	const struct mp_knot *p = head, *q;
 	do {
@@ -353,6 +369,10 @@ void mp_make_choices(struct mp_knot *head) {
 }
 
 #define t_of_the_way(a, b) ((1 - t) * (a) + t * (b))
+// GLSL  genType mix(genType x, genType y, float a);
+// HLSL  ret lerp(x, y, s)
+// C++20  constexpr Promoted lerp(Arithmetic1 a, Arithmetic2 b, Arithmetic3 t) noexcept;
+// Unity  public static float Lerp(float a, float b, float t);
 
 double complex mp_transform(double complex z, double complex tx, double complex ty, double complex ta) {
 	return creal(z) * tx + cimag(z) * ty + ta;
