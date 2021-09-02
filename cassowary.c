@@ -53,7 +53,8 @@ typedef struct cl_Table {
 } cl_Table;
 
 typedef struct cl_VarEntry {
-	cl_Entry entry;
+	int next;
+	cl_Symbol key;
 	struct cl_Variable {
 		cl_Symbol sym;
 		cl_Symbol dirty_next;
@@ -65,7 +66,8 @@ typedef struct cl_VarEntry {
 } cl_VarEntry;
 
 typedef struct cl_ConsEntry {
-	cl_Entry entry;
+	int next;
+	cl_Symbol key;
 	struct cl_Constraint {
 		struct cl_Row {
 			cl_Entry entry;
@@ -81,7 +83,8 @@ typedef struct cl_ConsEntry {
 } cl_ConsEntry;
 
 typedef struct cl_Term {
-	cl_Entry entry;
+	int next;
+	cl_Symbol key;
 	double multiplier;
 } cl_Term;
 
@@ -92,7 +95,7 @@ struct cl_Solver {
 	cl_Table rows; /* symbol -> Row */
 	unsigned symbol_count;
 	unsigned constraint_count;
-	unsigned auto_update;
+	bool auto_update;
 	cl_Symbol infeasible_rows;
 	cl_Symbol dirty_vars;
 };
@@ -131,11 +134,91 @@ static void cl_initsymbol(struct cl_Solver *solver, cl_Symbol *sym, int type) {
 
 /* hash table */
 
+
+/*void printtable(const cl_Table *t) {
+	static int ii;
+	printf("#%i, %p, size = %d, count = %d, entry_size = %d, hash = %p\n", ii++, t, (int) t->size, (int) t->count, (int) t->entry_size, t->hash);
+	for (size_t i = 0; i < t->size; i++) {
+		cl_Entry *e = (cl_Entry *) ((unsigned char *) t->hash + t->entry_size * i);
+		printf("[%p] %d %d\n", e, e->key.type, e->key.id);
+		if (i >= t->count && e->key.id) printf("!!!!!!!!!!!!!!!!");
+	}
+}
+
+static void cl_inittable(cl_Table *t, size_t entry_size) {
+	t->size = 4;
+	t->count = 0;
+	t->entry_size = entry_size;
+	t->hash = calloc(entry_size, 4);
+}
+
+static void cl_freetable(cl_Table *t) {
+	free(t->hash);
+}
+
+static void cl_resizetable(cl_Table *t) {
+	t->hash = realloc(t->hash, t->size * t->entry_size * 2);
+	memset((unsigned char *) t->hash + t->entry_size * t->size, 0, t->entry_size * t->size);
+	t->size *= 2;
+}
+
+static cl_Entry *cl_bsearch(const cl_Table *t, cl_Symbol key) {
+	cl_Entry *base = t->hash;
+	size_t nel = t->count;
+	while (nel > 0) {
+		cl_Entry *try = (cl_Entry *) ((unsigned char *) base + t->entry_size * (nel / 2));
+		if (key.id < try->key.id) {
+			nel /= 2;
+		} else if (key.id > try->key.id) {
+			base = (unsigned char *) try + t->entry_size;
+			nel -= nel / 2 + 1;
+		} else {
+			return try;
+		}
+	}
+	return base;
+}
+
+static const cl_Entry *cl_gettable(const cl_Table *t, cl_Symbol key) {
+	const cl_Entry *e = cl_bsearch(t, key);
+	//printf("bsearch %d = %p\n", key.id, e);printtable(t);
+	return e->key.id == key.id ? e : NULL;
+}
+
+static cl_Entry *cl_settable(cl_Table *t, cl_Symbol key) {
+	assert(key.id);
+	if (t->size == t->count) cl_resizetable(t);
+	cl_Entry *e = cl_bsearch(t, key);
+	if (e->key.id == key.id) return e;
+	memmove((unsigned char *) e + t->entry_size, e, t->entry_size * t->count - (size_t) ((unsigned char *) e - (unsigned char *) t->hash));
+	t->count++;
+	memset(e, 0, t->entry_size);
+	e->key = key;
+	return e;
+}
+
+static void cl_delkey(cl_Table *t, cl_Entry *e) {
+	//printf("before delete %p:\n", e);printtable(t);
+	memmove(e, (unsigned char *) e + t->entry_size, t->entry_size * t->count - (size_t) ((unsigned char *) e + t->entry_size - (unsigned char *) t->hash));
+	t->count--;
+	memset((unsigned char *) t->hash + t->entry_size * t->count, 0, t->entry_size);
+	//printf("after delete %p:\n", e);printtable(t);
+}
+
+static bool cl_nextentry(const cl_Table *t, cl_Entry **pentry) {
+	cl_Entry *end = (cl_Entry *) ((unsigned char *) t->hash + t->count * t->entry_size);
+	*pentry = *pentry ? (cl_Entry *) ((unsigned char *) *pentry + t->entry_size) : t->hash;
+	return *pentry < end;
+}
+*/
+
+/* hash table */
+
 #define cl_key(entry) (((cl_Entry*)(entry))->key)
 #define cl_offset(lhs,rhs) ((int)((char*)(lhs) - (char*)(rhs)))
 #define cl_index(h, i) ((cl_Entry*)((char*)(h) + (i)))
 
-static cl_Entry *cl_newkey(struct cl_Solver *solver, cl_Table *t, cl_Symbol key);
+static cl_Entry *cl_newkey(cl_Table *t, cl_Symbol key);
 
 static void cl_delkey(cl_Table *t, cl_Entry *entry) {
 	entry->key = cl_null();
@@ -160,12 +243,11 @@ static size_t cl_hashsize(cl_Table *t, size_t len) {
 }
 
 static void cl_freetable(cl_Table *t) {
-	size_t size = t->size*t->entry_size;
-	if (size) free(t->hash);
+	if (t->size * t->entry_size) free(t->hash);
 	cl_inittable(t, t->entry_size);
 }
 
-static size_t cl_resizetable(struct cl_Solver *solver, cl_Table *t, size_t len) {
+static size_t cl_resizetable(cl_Table *t, size_t len) {
 	size_t oldsize = t->size * t->entry_size;
 	cl_Table nt = *t;
 	nt.size = cl_hashsize(t, len);
@@ -174,10 +256,11 @@ static size_t cl_resizetable(struct cl_Solver *solver, cl_Table *t, size_t len) 
 	memset(nt.hash, 0, nt.size*nt.entry_size);
 	for (size_t i = 0; i < oldsize; i += nt.entry_size) {
 		cl_Entry *e = cl_index(t->hash, i);
-		if (e->key.id != 0) {
-			cl_Entry *ne = cl_newkey(solver, &nt, e->key);
-			if (t->entry_size > sizeof(cl_Entry))
-				memcpy(ne + 1, e + 1, t->entry_size-sizeof(cl_Entry));
+		if (e->key.id) {
+			cl_Entry *ne = cl_newkey(&nt, e->key);
+			if (t->entry_size > sizeof(cl_Entry)) {
+				memcpy(ne + 1, e + 1, t->entry_size - sizeof(cl_Entry));
+			}
 		}
 	}
 	if (oldsize) free(t->hash);
@@ -185,8 +268,8 @@ static size_t cl_resizetable(struct cl_Solver *solver, cl_Table *t, size_t len) 
 	return t->size;
 }
 
-static cl_Entry *cl_newkey(struct cl_Solver *solver, cl_Table *t, cl_Symbol key) {
-	if (t->size == 0) cl_resizetable(solver, t, CL_MIN_HASHSIZE);
+static cl_Entry *cl_newkey(cl_Table *t, cl_Symbol key) {
+	if (t->size == 0) cl_resizetable(t, CL_MIN_HASHSIZE);
 	for (;;) {
 		cl_Entry *mp = cl_mainposition(t, key);
 		if (mp->key.id) {
@@ -195,7 +278,7 @@ static cl_Entry *cl_newkey(struct cl_Solver *solver, cl_Table *t, cl_Symbol key)
 				cl_Entry *e = cl_index(t->hash, t->lastfree -= t->entry_size);
 				if (e->key.id == 0 && e->next == 0) { f = e; break; }
 			}
-			if (!f) { cl_resizetable(solver, t, t->count*2); continue; }
+			if (!f) { cl_resizetable(t, t->count*2); continue; }
 			assert(!f->key.id);
 			othern = cl_mainposition(t, mp->key);
 			if (othern != mp) {
@@ -207,10 +290,11 @@ static cl_Entry *cl_newkey(struct cl_Solver *solver, cl_Table *t, cl_Symbol key)
 				memcpy(f, mp, t->entry_size);
 				if (mp->next) f->next += cl_offset(mp, f), mp->next = 0;
 			} else {
-				if (mp->next != 0)
+				if (mp->next) {
 					f->next = cl_offset(mp, f) + mp->next;
-				else
-					assert(f->next == 0);
+				} else {
+					assert(!f->next);
+				}
 				mp->next = cl_offset(f, mp), mp = f;
 			}
 		}
@@ -220,6 +304,7 @@ static cl_Entry *cl_newkey(struct cl_Solver *solver, cl_Table *t, cl_Symbol key)
 }
 
 static const cl_Entry *cl_gettable(const cl_Table *t, cl_Symbol key) {
+	//printf("gettable %d\n", key.id);
 	const cl_Entry *e;
 	if (t->size == 0 || key.id == 0) return NULL;
 	for (e = cl_mainposition(t, key); e->key.id != key.id; e = cl_index(e, e->next)) {
@@ -228,11 +313,12 @@ static const cl_Entry *cl_gettable(const cl_Table *t, cl_Symbol key) {
 	return e;
 }
 
-static cl_Entry *cl_settable(struct cl_Solver *solver, cl_Table *t, cl_Symbol key) {
+static cl_Entry *cl_settable(cl_Table *t, cl_Symbol key) {
 	assert(key.id);
+	//printf("settable %d\n", key.id);
 	cl_Entry *e = (cl_Entry*)cl_gettable(t, key);
 	if (e) return e;
-	e = cl_newkey(solver, t, key);
+	e = cl_newkey(t, key);
 	if (t->entry_size > sizeof(cl_Entry)) {
 		memset(e + 1, 0, t->entry_size-sizeof(cl_Entry));
 	}
@@ -249,7 +335,6 @@ static int cl_nextentry(const cl_Table *t, cl_Entry **pentry) {
 	*pentry = NULL;
 	return 0;
 }
-
 
 /* expression (row) */
 static int cl_isconstant(struct cl_Row *row) {
@@ -275,9 +360,9 @@ static void cl_multiply(struct cl_Row *row, double multiplier) {
 
 static void cl_addvar(struct cl_Solver *solver, struct cl_Row *row, cl_Symbol sym, double value) {
 	if (!sym.id) return;
-	cl_Term *term = (cl_Term*)cl_settable(solver, &row->terms, sym);
+	cl_Term *term = (cl_Term*)cl_settable(&row->terms, sym);
 	if (cl_nearzero(term->multiplier += value)) {
-		cl_delkey(&row->terms, &term->entry);
+		cl_delkey(&row->terms, term);
 	}
 }
 
@@ -289,18 +374,18 @@ static void cl_addrow(struct cl_Solver *solver, struct cl_Row *row, const struct
 }
 
 static void cl_solvefor(struct cl_Solver *solver, struct cl_Row *row, cl_Symbol entry, cl_Symbol exit) {
-	cl_Term *term = (cl_Term*)cl_gettable(&row->terms, entry);
+	cl_Term *term = (cl_Term*) cl_gettable(&row->terms, entry);
 	double reciprocal = 1 / term->multiplier;
 	assert(entry.id != exit.id && !cl_nearzero(term->multiplier));
-	cl_delkey(&row->terms, &term->entry);
+	cl_delkey(&row->terms, term);
 	cl_multiply(row, -reciprocal);
-	if (exit.id != 0) cl_addvar(solver, row, exit, reciprocal);
+	if (exit.id) cl_addvar(solver, row, exit, reciprocal);
 }
 
 static void cl_substitute(struct cl_Solver *solver, struct cl_Row *row, cl_Symbol entry, const struct cl_Row *other) {
 	cl_Term *term = (cl_Term*)cl_gettable(&row->terms, entry);
 	if (!term) return;
-	cl_delkey(&row->terms, &term->entry);
+	cl_delkey(&row->terms, term);
 	cl_addrow(solver, row, other, term->multiplier);
 }
 
@@ -315,7 +400,7 @@ static struct cl_Variable *cl_sym2var(struct cl_Solver *solver, cl_Symbol sym) {
 
 void cl_newvariable(struct cl_Solver *solver, struct cl_Variable *var) {
 	cl_Symbol sym = cl_newsymbol(solver, CL_EXTERNAL);
-	cl_VarEntry *ve = (cl_VarEntry *) cl_settable(solver, &solver->vars, sym);
+	cl_VarEntry *ve = (cl_VarEntry *) cl_settable(&solver->vars, sym);
 	assert(!ve->var);
 	memset(var, 0, sizeof(*var));
 	var->sym = sym;
@@ -327,18 +412,19 @@ void cl_delvariable(struct cl_Solver *solver, struct cl_Variable *var) {
 	if (var && --var->refcount <= 0) {
 		cl_VarEntry *e = (cl_VarEntry*)cl_gettable(&solver->vars, var->sym);
 		assert(e);
-		cl_delkey(&solver->vars, &e->entry);
+		cl_delkey(&solver->vars, e);
 		cl_remove(solver, var->constraint);
 	}
 }
 
-void cl_newconstraint(struct cl_Solver *solver, struct cl_Constraint *cons, double strength) {
+void cl_newconstraint(struct cl_Solver *solver, struct cl_Constraint *cons, double strength, bool equal) {
 	memset(cons, 0, sizeof(*cons));
 	cons->strength = cl_nearzero(strength) ? CL_REQUIRED : strength;
+	cons->equal = equal;
 	cl_initrow(&cons->expression);
 	cl_key(cons).id = ++solver->constraint_count;
 	cl_key(cons).type = CL_EXTERNAL;
-	((cl_ConsEntry*)cl_settable(solver, &solver->constraints, cl_key(cons)))->constraint = cons;
+	((cl_ConsEntry*)cl_settable(&solver->constraints, cl_key(cons)))->constraint = cons;
 }
 
 void cl_delconstraint(struct cl_Solver *solver, struct cl_Constraint *cons) {
@@ -346,7 +432,7 @@ void cl_delconstraint(struct cl_Solver *solver, struct cl_Constraint *cons) {
 	cl_remove(solver, cons);
 	cl_ConsEntry *ce = (cl_ConsEntry*)cl_gettable(&solver->constraints, cl_key(cons));
 	assert(ce);
-	cl_delkey(&solver->constraints, &ce->entry);
+	cl_delkey(&solver->constraints, ce);
 	cl_Term *term = NULL;
 	while (cl_nextentry(&cons->expression.terms, (cl_Entry**)&term)) {
 		cl_delvariable(solver, cl_sym2var(solver, cl_key(term)));
@@ -365,13 +451,6 @@ void cl_addconstant(struct cl_Constraint *cons, double constant) {
 	assert(cons && !cons->marker.id);
 	cons->expression.constant += constant;
 }
-
-void cl_setrelation(struct cl_Constraint *cons, bool equal) {
-	assert(cons && !cons->marker.id);
-	cl_multiply(&cons->expression, -1);
-	cons->equal = equal;
-}
-
 
 /* Cassowary algorithm */
 
@@ -407,14 +486,14 @@ static bool cl_takerow(struct cl_Solver *solver, cl_Symbol sym, struct cl_Row *d
 	struct cl_Row *row = (struct cl_Row*)cl_gettable(&solver->rows, sym);
 	cl_key(dst) = cl_null();
 	if (!row) return false;
-	cl_delkey(&solver->rows, &row->entry);
+	cl_delkey(&solver->rows, row);
 	dst->constant = row->constant;
 	dst->terms = row->terms;
 	return true;
 }
 
 static void cl_putrow(struct cl_Solver *solver, cl_Symbol sym, const struct cl_Row *src) {
-	struct cl_Row *row = (struct cl_Row*)cl_settable(solver, &solver->rows, sym);
+	struct cl_Row *row = (struct cl_Row*)cl_settable(&solver->rows, sym);
 	row->constant = src->constant;
 	row->terms = src->terms;
 }
@@ -544,10 +623,10 @@ static int cl_add_with_artificial(struct cl_Solver *solver, struct cl_Row *row, 
 	}
 	while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
 		term = (cl_Term*)cl_gettable(&row->terms, a);
-		if (term) cl_delkey(&row->terms, &term->entry);
+		if (term) cl_delkey(&row->terms, term);
 	}
 	term = (cl_Term*)cl_gettable(&solver->objective.terms, a);
-	if (term) cl_delkey(&solver->objective.terms, &term->entry);
+	if (term) cl_delkey(&solver->objective.terms, term);
 	if (ret != CL_OK) cl_remove(solver, cons);
 	return ret;
 }
@@ -760,8 +839,7 @@ void cl_addedit(struct cl_Solver *solver, struct cl_Variable *var, double streng
 	}
 	assert(var->sym.id);
 	struct cl_Constraint *cons = malloc(sizeof(*cons));
-	cl_newconstraint(solver, cons, strength);
-	cl_setrelation(cons, true);
+	cl_newconstraint(solver, cons, strength, true);
 	cl_addterm(solver, cons, var, 1); /* var must be positive */
 	cl_addconstant(cons, -var->value);
 	assert(cl_add(solver, cons) == CL_OK);
@@ -832,40 +910,34 @@ int main() {
 	struct cl_Variable x2; cl_newvariable(&S, &x2);
 
 	// c3: x1 >= 0
-	struct cl_Constraint c3; cl_newconstraint(&S, &c3, CL_REQUIRED);
-	cl_addterm(&S, &c3, &x1, -1);
-	cl_setrelation(&c3, false);
-	cl_addconstant(&c3, 0);
+	struct cl_Constraint c3; cl_newconstraint(&S, &c3, CL_REQUIRED, false);
+	cl_addterm(&S, &c3, &x1, 1);
 	cl_add(&S, &c3);
 
 	// c4: x2 <= 100
-	struct cl_Constraint c4; cl_newconstraint(&S, &c4, CL_REQUIRED);
-	cl_addterm(&S, &c4, &x2, 1);
-	cl_setrelation(&c4, false);
+	struct cl_Constraint c4; cl_newconstraint(&S, &c4, CL_REQUIRED, false);
+	cl_addterm(&S, &c4, &x2, -1);
 	cl_addconstant(&c4, 100);
 	cl_add(&S, &c4);
 
 	// c2: x2 >= x1 + 20
-	struct cl_Constraint c2; cl_newconstraint(&S, &c2, CL_REQUIRED);
-	cl_addterm(&S, &c2, &x2, -1);
-	cl_setrelation(&c2, false);
+	struct cl_Constraint c2; cl_newconstraint(&S, &c2, CL_REQUIRED, false);
+	cl_addterm(&S, &c2, &x2, 1);
 	cl_addterm(&S, &c2, &x1, -1);
 	cl_addconstant(&c2, -20);
 	cl_add(&S, &c2);
 
 	// c1: xm is in middle of x1 and x2:
 	// i.e. xm = (x1 + x2) / 2, or 2*xm = x1 + x2
-	struct cl_Constraint c1; cl_newconstraint(&S, &c1, CL_REQUIRED);
-	cl_addterm(&S, &c1, &xm, 2);
-	cl_setrelation(&c1, true);
+	struct cl_Constraint c1; cl_newconstraint(&S, &c1, CL_REQUIRED, true);
+	cl_addterm(&S, &c1, &xm, -2);
 	cl_addterm(&S, &c1, &x1, 1);
 	cl_addterm(&S, &c1, &x2, 1);
 	cl_add(&S, &c1);
 
 	// c5: x1 == 40
-	struct cl_Constraint c5; cl_newconstraint(&S, &c5, CL_WEAK);
-	cl_addterm(&S, &c5, &x1, 1);
-	cl_setrelation(&c5, true);
+	struct cl_Constraint c5; cl_newconstraint(&S, &c5, CL_WEAK, true);
+	cl_addterm(&S, &c5, &x1, -1);
 	cl_addconstant(&c5, 40);
 	cl_add(&S, &c5);
 
