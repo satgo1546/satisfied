@@ -61,14 +61,17 @@ struct mp_knot {
 //      .. z3 {-1, -2} .. tension 3 and 4
 //      .. z4 .. controls z45 and z54 .. z5
 // will be represented by the six knots
+//   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //   ┌───────── left ─────────┐       ┌──────── right ─────────┐
 //   type     parameter tension coord type     parameter tension
+//   ───────────────────────────────────────────────────────────
 //   endpoint —         —       z0    curl     1.0       1.0
 //   open     —         1.0     z1    open     —         −1.0
 //   curl     2.0       −1.0    z2    curl     2.0       1.0
 //   given    π+atan(2) 1.0     z3    given    π+atan(2) 3.0
 //   open     —         4.0     z4    explicit x45*      y45*
 //   explicit x54*      y54*    z5    endpoint —         —
+//   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // * (x45, y45) and (x54, y54) are stored in the left.coord field and the right.coord field respectively. They should occupy the same storage as the parameter and tension fields.
 // If a path is cyclic, there will be no knots with endpoint types.
 
