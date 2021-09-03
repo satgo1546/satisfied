@@ -93,7 +93,6 @@ static_assert(offsetof(struct cl_Term, key), "");//todo
 struct cl_Solver {
 	struct cl_Row objective;
 	cl_Table vars; /* symbol -> VarEntry */
-	cl_Table constraints; /* symbol -> ConsEntry */
 	cl_Table rows; /* symbol -> Row */
 	unsigned symbol_count;
 	unsigned constraint_count;
@@ -447,15 +446,11 @@ void cl_newconstraint(struct cl_Solver *solver, struct cl_Constraint *cons, doub
 	cl_initrow(&cons->expression);
 	cl_key(cons).id = ++solver->constraint_count;
 	cl_key(cons).type = CL_EXTERNAL;
-	((cl_ConsEntry*)cl_settable(&solver->constraints, cl_key(cons)))->constraint = cons;
 }
 
 void cl_delconstraint(struct cl_Solver *solver, struct cl_Constraint *cons) {
 	if (!cons) return;
 	cl_remove(solver, cons);
-	cl_ConsEntry *ce = (cl_ConsEntry*)cl_gettable(&solver->constraints, cl_key(cons));
-	assert(ce);
-	cl_delkey(&solver->constraints, ce);
 	cl_Term *term = NULL;
 	while (cl_nextentry(&cons->expression.terms, (cl_Entry**)&term)) {
 		cl_delvariable(solver, cl_sym2var(solver, cl_key(term)));
@@ -771,22 +766,16 @@ void cl_newsolver(struct cl_Solver *solver) {
 	memset(solver, 0, sizeof(*solver));
 	cl_initrow(&solver->objective);
 	cl_inittable(&solver->vars, sizeof(cl_VarEntry));
-	cl_inittable(&solver->constraints, sizeof(cl_ConsEntry));
 	cl_inittable(&solver->rows, sizeof(struct cl_Row));
 }
 
 void cl_delsolver(struct cl_Solver *solver) {
-	cl_ConsEntry *ce = NULL;
-	while (cl_nextentry(&solver->constraints, (cl_Entry**)&ce)) {
-		cl_freerow(&ce->constraint->expression);
-	}
 	struct cl_Row *row = NULL;
 	while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
 		cl_freerow(row);
 	}
 	cl_freerow(&solver->objective);
 	cl_freetable(&solver->vars);
-	cl_freetable(&solver->constraints);
 	cl_freetable(&solver->rows);
 }
 
@@ -871,7 +860,7 @@ void cl_addedit(struct cl_Solver *solver, struct cl_Variable *var, double streng
 }
 
 void cl_deledit(struct cl_Solver *solver, struct cl_Variable *var) {
-	if (!var || !var->constraint) return;
+	assert(var && var->constraint);
 	cl_delconstraint(solver, var->constraint);
 	var->constraint = NULL;
 	var->edit_value = 0;
@@ -974,5 +963,6 @@ int main() {
 	cl_dumpsolver(&S);
 	printf("%g, %g, %g\n", x1.value, xm.value, x2.value);
 
+	cl_deledit(&S, &xm);
 	cl_delsolver(&S);
 }
