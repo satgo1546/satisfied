@@ -85,8 +85,10 @@ typedef struct cl_ConsEntry {
 typedef struct cl_Term {
 	int next;
 	cl_Symbol key;
-	double multiplier;
+	double coefficient;
 } cl_Term;
+
+static_assert(offsetof(struct cl_Term, key), "");//todo
 
 struct cl_Solver {
 	struct cl_Row objective;
@@ -134,8 +136,12 @@ static void cl_initsymbol(struct cl_Solver *solver, cl_Symbol *sym, int type) {
 
 /* hash table */
 
+#define cl_key(entry) (((cl_Entry*)(entry))->key)
+#define cl_offset(lhs,rhs) ((int)((char*)(lhs) - (char*)(rhs)))
+#define cl_index(h, i) ((cl_Entry*)((char*)(h) + (i)))
 
-/*void printtable(const cl_Table *t) {
+#if 0
+void printtable(const cl_Table *t) {
 	static int ii;
 	printf("#%i, %p, size = %d, count = %d, entry_size = %d, hash = %p\n", ii++, t, (int) t->size, (int) t->count, (int) t->entry_size, t->hash);
 	for (size_t i = 0; i < t->size; i++) {
@@ -181,12 +187,14 @@ static cl_Entry *cl_bsearch(const cl_Table *t, cl_Symbol key) {
 
 static const cl_Entry *cl_gettable(const cl_Table *t, cl_Symbol key) {
 	const cl_Entry *e = cl_bsearch(t, key);
+	printf("gettable %d\n", key.id);
 	//printf("bsearch %d = %p\n", key.id, e);printtable(t);
 	return e->key.id == key.id ? e : NULL;
 }
 
 static cl_Entry *cl_settable(cl_Table *t, cl_Symbol key) {
 	assert(key.id);
+	printf("settable %d\n", key.id);
 	if (t->size == t->count) cl_resizetable(t);
 	cl_Entry *e = cl_bsearch(t, key);
 	if (e->key.id == key.id) return e;
@@ -199,6 +207,7 @@ static cl_Entry *cl_settable(cl_Table *t, cl_Symbol key) {
 
 static void cl_delkey(cl_Table *t, cl_Entry *e) {
 	//printf("before delete %p:\n", e);printtable(t);
+	printf("delkey %d\n", cl_key(e).id);
 	memmove(e, (unsigned char *) e + t->entry_size, t->entry_size * t->count - (size_t) ((unsigned char *) e + t->entry_size - (unsigned char *) t->hash));
 	t->count--;
 	memset((unsigned char *) t->hash + t->entry_size * t->count, 0, t->entry_size);
@@ -206,24 +215,22 @@ static void cl_delkey(cl_Table *t, cl_Entry *e) {
 }
 
 static bool cl_nextentry(const cl_Table *t, cl_Entry **pentry) {
-	cl_Entry *end = (cl_Entry *) ((unsigned char *) t->hash + t->count * t->entry_size);
-	*pentry = *pentry ? (cl_Entry *) ((unsigned char *) *pentry + t->entry_size) : t->hash;
-	return *pentry < end;
+	printf("nextentry %d", *pentry ? cl_key(*pentry).id : -1);
+	cl_Entry *end = (cl_Entry *) ((unsigned char *) t->hash + (t->count - 1) * t->entry_size);
+	*pentry = *pentry ? (cl_Entry *) ((unsigned char *) *pentry - t->entry_size) : end;
+	printf(" %d %d\n", cl_key(*pentry).id, *pentry >= t->hash);
+	if (*pentry < t->hash) {
+		*pentry = NULL;
+		return false;
+	}
+	return true;
 }
-*/
+
 
 /* hash table */
 
-#define cl_key(entry) (((cl_Entry*)(entry))->key)
-#define cl_offset(lhs,rhs) ((int)((char*)(lhs) - (char*)(rhs)))
-#define cl_index(h, i) ((cl_Entry*)((char*)(h) + (i)))
-
+#else
 static cl_Entry *cl_newkey(cl_Table *t, cl_Symbol key);
-
-static void cl_delkey(cl_Table *t, cl_Entry *entry) {
-	entry->key = cl_null();
-	t->count--;
-}
 
 static void cl_inittable(cl_Table *t, size_t entry_size) {
 	memset(t, 0, sizeof(*t));
@@ -303,8 +310,9 @@ static cl_Entry *cl_newkey(cl_Table *t, cl_Symbol key) {
 	}
 }
 
+bool dontprint;
 static const cl_Entry *cl_gettable(const cl_Table *t, cl_Symbol key) {
-	//printf("gettable %d\n", key.id);
+	//if (!dontprint)printf("gettable %d\n", key.id);
 	const cl_Entry *e;
 	if (t->size == 0 || key.id == 0) return NULL;
 	for (e = cl_mainposition(t, key); e->key.id != key.id; e = cl_index(e, e->next)) {
@@ -316,7 +324,9 @@ static const cl_Entry *cl_gettable(const cl_Table *t, cl_Symbol key) {
 static cl_Entry *cl_settable(cl_Table *t, cl_Symbol key) {
 	assert(key.id);
 	//printf("settable %d\n", key.id);
+	dontprint=1;
 	cl_Entry *e = (cl_Entry*)cl_gettable(t, key);
+	dontprint=0;
 	if (e) return e;
 	e = cl_newkey(t, key);
 	if (t->entry_size > sizeof(cl_Entry)) {
@@ -327,14 +337,27 @@ static cl_Entry *cl_settable(cl_Table *t, cl_Symbol key) {
 }
 
 static int cl_nextentry(const cl_Table *t, cl_Entry **pentry) {
+//printf("nextentry %d", *pentry ? cl_key(*pentry).id : -1);
 	cl_Entry *end = cl_index(t->hash, t->size*t->entry_size);
 	cl_Entry *e = *pentry;
 	e = e ? cl_index(e, t->entry_size) : t->hash;
 	for (; e < end; e = cl_index(e, t->entry_size))
-		if (e->key.id != 0) return *pentry = e, 1;
+		if (e->key.id != 0) {
+			*pentry = e;
+//printf(" %d %d\n", cl_key(*pentry).id, 1);
+			return 1;
+		}
+//printf(" 0 0\n");
 	*pentry = NULL;
 	return 0;
 }
+
+static void cl_delkey(cl_Table *t, void *entry) {
+//printf("delkey %d\n", cl_key(entry).id);
+	((cl_Entry *) entry)->key = cl_null();
+	t->count--;
+}
+#endif
 
 /* expression (row) */
 static int cl_isconstant(struct cl_Row *row) {
@@ -355,13 +378,13 @@ static void cl_initrow(struct cl_Row *row) {
 static void cl_multiply(struct cl_Row *row, double multiplier) {
 	cl_Term *term = NULL;
 	row->constant *= multiplier;
-	while (cl_nextentry(&row->terms, (cl_Entry**)&term)) term->multiplier *= multiplier;
+	while (cl_nextentry(&row->terms, (cl_Entry**)&term)) term->coefficient *= multiplier;
 }
 
 static void cl_addvar(struct cl_Solver *solver, struct cl_Row *row, cl_Symbol sym, double value) {
 	if (!sym.id) return;
 	cl_Term *term = (cl_Term*)cl_settable(&row->terms, sym);
-	if (cl_nearzero(term->multiplier += value)) {
+	if (cl_nearzero(term->coefficient += value)) {
 		cl_delkey(&row->terms, term);
 	}
 }
@@ -370,13 +393,13 @@ static void cl_addrow(struct cl_Solver *solver, struct cl_Row *row, const struct
 	cl_Term *term = NULL;
 	row->constant += other->constant*multiplier;
 	while (cl_nextentry(&other->terms, (cl_Entry**)&term))
-		cl_addvar(solver, row, cl_key(term), term->multiplier*multiplier);
+		cl_addvar(solver, row, cl_key(term), term->coefficient*multiplier);
 }
 
 static void cl_solvefor(struct cl_Solver *solver, struct cl_Row *row, cl_Symbol entry, cl_Symbol exit) {
 	cl_Term *term = (cl_Term*) cl_gettable(&row->terms, entry);
-	double reciprocal = 1 / term->multiplier;
-	assert(entry.id != exit.id && !cl_nearzero(term->multiplier));
+	double reciprocal = 1 / term->coefficient;
+	assert(entry.id != exit.id && !cl_nearzero(term->coefficient));
 	cl_delkey(&row->terms, term);
 	cl_multiply(row, -reciprocal);
 	if (exit.id) cl_addvar(solver, row, exit, reciprocal);
@@ -386,7 +409,7 @@ static void cl_substitute(struct cl_Solver *solver, struct cl_Row *row, cl_Symbo
 	cl_Term *term = (cl_Term*)cl_gettable(&row->terms, entry);
 	if (!term) return;
 	cl_delkey(&row->terms, term);
-	cl_addrow(solver, row, other, term->multiplier);
+	cl_addrow(solver, row, other, term->coefficient);
 }
 
 
@@ -516,7 +539,7 @@ static void cl_optimize(struct cl_Solver *solver, struct cl_Row *objective) {
 
 		assert(!solver->infeasible_rows.id);
 		while (cl_nextentry(&objective->terms, (cl_Entry**)&term)) {
-			if (cl_key(term).type != CL_DUMMY && term->multiplier < 0) {
+			if (cl_key(term).type != CL_DUMMY && term->coefficient < 0) {
 				enter = cl_key(term);
 				break;
 			}
@@ -525,8 +548,8 @@ static void cl_optimize(struct cl_Solver *solver, struct cl_Row *objective) {
 
 		while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
 			term = (cl_Term*)cl_gettable(&row->terms, enter);
-			if (!term || !cl_ispivotable(cl_key(row)) || term->multiplier > 0) continue;
-			r = -row->constant / term->multiplier;
+			if (!term || !cl_ispivotable(cl_key(row)) || term->coefficient > 0) continue;
+			r = -row->constant / term->coefficient;
 			if (r < min_ratio || (cl_nearzero(r - min_ratio) && cl_key(row).id < exit.id)) {
 				min_ratio = r;
 				exit = cl_key(row);
@@ -550,7 +573,7 @@ static struct cl_Row cl_makerow(struct cl_Solver *solver, struct cl_Constraint *
 	row.constant = cons->expression.constant;
 	while (cl_nextentry(&cons->expression.terms, (cl_Entry**)&term)) {
 		cl_markdirty(solver, cl_sym2var(solver, cl_key(term)));
-		cl_mergerow(solver, &row, cl_key(term), term->multiplier);
+		cl_mergerow(solver, &row, cl_key(term), term->coefficient);
 	}
 	if (!cons->equal) {
 		cl_initsymbol(solver, &cons->marker, CL_SLACK);
@@ -642,11 +665,11 @@ static int cl_try_addrow(struct cl_Solver *solver, struct cl_Row *row, struct cl
 	}
 	if (!subject.id && cl_ispivotable(cons->marker)) {
 		cl_Term *mterm = (cl_Term*)cl_gettable(&row->terms, cons->marker);
-		if (mterm->multiplier < 0) subject = cons->marker;
+		if (mterm->coefficient < 0) subject = cons->marker;
 	}
 	if (!subject.id && cl_ispivotable(cons->other)) {
 		cl_Term *mterm = (cl_Term*)cl_gettable(&row->terms, cons->other);
-		if (mterm->multiplier < 0) subject = cons->other;
+		if (mterm->coefficient < 0) subject = cons->other;
 	}
 	if (!subject.id) {
 		while (cl_nextentry(&row->terms, (cl_Entry**)&term))
@@ -676,14 +699,14 @@ static cl_Symbol cl_get_leaving_row(struct cl_Solver *solver, cl_Symbol marker) 
 		if (!term) continue;
 		if (cl_key(row).type == CL_EXTERNAL) {
 			third = cl_key(row);
-		} else if (term->multiplier < 0) {
-			double r = -row->constant / term->multiplier;
+		} else if (term->coefficient < 0) {
+			double r = -row->constant / term->coefficient;
 			if (r < r1) {
 				r1 = r;
 				first = cl_key(row);
 			}
 		} else {
-			double r = row->constant / term->multiplier;
+			double r = row->constant / term->coefficient;
 			if (r < r2) {
 				r2 = r;
 				second = cl_key(row);
@@ -708,7 +731,7 @@ static void cl_delta_edit_constant(struct cl_Solver *solver, double delta, struc
 	while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
 		cl_Term *term = (cl_Term*)cl_gettable(&row->terms, cons->marker);
 		if (!term) continue;
-		row->constant += term->multiplier*delta;
+		row->constant += term->coefficient*delta;
 		if (cl_key(row).type == CL_EXTERNAL) {
 			cl_markdirty(solver, cl_sym2var(solver, cl_key(row)));
 		} else {
@@ -730,9 +753,9 @@ static void cl_dual_optimize(struct cl_Solver *solver) {
 		if (cl_nearzero(row->constant) || row->constant >= 0) continue;
 		while (cl_nextentry(&row->terms, (cl_Entry**)&term)) {
 			cl_Symbol cur = cl_key(term);
-			if (cur.type == CL_DUMMY || term->multiplier <= 0) continue;
+			if (cur.type == CL_DUMMY || term->coefficient <= 0) continue;
 			objterm = (cl_Term*)cl_gettable(&solver->objective.terms, cur);
-			r = objterm ? objterm->multiplier / term->multiplier : 0;
+			r = objterm ? objterm->coefficient / term->coefficient : 0;
 			if (min_ratio > r) min_ratio = r, enter = cur;
 		}
 		assert(enter.id);
@@ -883,8 +906,8 @@ void cl_dumprow(struct cl_Row *row) {
 	cl_Term *term = NULL;
 	printf("%g", row->constant);
 	while (cl_nextentry(&row->terms, (cl_Entry**)&term)) {
-		printf(" %c ", signbit(term->multiplier) ? '-' : '+');
-		if (!cl_nearzero(fabs(term->multiplier) - 1)) printf("%g*", fabs(term->multiplier));
+		printf(" %c ", signbit(term->coefficient) ? '-' : '+');
+		if (!cl_nearzero(fabs(term->coefficient) - 1)) printf("%g*", fabs(term->coefficient));
 		cl_dumpkey(cl_key(term));
 	}
 	putchar('\n');
