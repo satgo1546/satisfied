@@ -391,8 +391,9 @@ static void cl_addvar(struct cl_Solver *solver, struct cl_Row *row, cl_Symbol sy
 static void cl_addrow(struct cl_Solver *solver, struct cl_Row *row, const struct cl_Row *other, double multiplier) {
 	cl_Term *term = NULL;
 	row->constant += other->constant*multiplier;
-	while (cl_nextentry(&other->terms, (cl_Entry**)&term))
+	while (cl_nextentry(&other->terms, (cl_Entry**)&term)) {
 		cl_addvar(solver, row, cl_key(term), term->coefficient*multiplier);
+	}
 }
 
 static void cl_solvefor(struct cl_Solver *solver, struct cl_Row *row, cl_Symbol entry, cl_Symbol exit) {
@@ -420,7 +421,7 @@ static struct cl_Variable *cl_sym2var(struct cl_Solver *solver, cl_Symbol sym) {
 	return ve->var;
 }
 
-void cl_newvariable(struct cl_Solver *solver, struct cl_Variable *var) {
+void cl_define_variable(struct cl_Solver *solver, struct cl_Variable *var) {
 	cl_Symbol sym = cl_newsymbol(solver, CL_EXTERNAL);
 	cl_VarEntry *ve = (cl_VarEntry *) cl_settable(&solver->vars, sym);
 	assert(!ve->var);
@@ -561,38 +562,6 @@ static void cl_optimize(struct cl_Solver *solver, struct cl_Row *objective) {
 	}
 }
 
-static struct cl_Row cl_makerow(struct cl_Solver *solver, struct cl_Constraint *cons) {
-	cl_Term *term = NULL;
-	struct cl_Row row;
-	cl_initrow(&row);
-	row.constant = cons->expression.constant;
-	while (cl_nextentry(&cons->expression.terms, (cl_Entry**)&term)) {
-		cl_markdirty(solver, cl_sym2var(solver, cl_key(term)));
-		cl_mergerow(solver, &row, cl_key(term), term->coefficient);
-	}
-	if (!cons->equal) {
-		cl_initsymbol(solver, &cons->marker, CL_SLACK);
-		cl_addvar(solver, &row, cons->marker, -1);
-		if (cons->strength < CL_REQUIRED) {
-			cl_initsymbol(solver, &cons->other, CL_ERROR);
-			cl_addvar(solver, &row, cons->other, 1);
-			cl_addvar(solver, &solver->objective, cons->other, cons->strength);
-		}
-	} else if (cons->strength >= CL_REQUIRED) {
-		cl_initsymbol(solver, &cons->marker, CL_DUMMY);
-		cl_addvar(solver, &row, cons->marker, 1);
-	} else {
-		cl_initsymbol(solver, &cons->marker, CL_ERROR);
-		cl_initsymbol(solver, &cons->other, CL_ERROR);
-		cl_addvar(solver, &row, cons->marker, -1);
-		cl_addvar(solver, &row, cons->other, 1);
-		cl_addvar(solver, &solver->objective, cons->marker, cons->strength);
-		cl_addvar(solver, &solver->objective, cons->other, cons->strength);
-	}
-	if (row.constant < 0) cl_multiply(&row, -1);
-	return row;
-}
-
 static void cl_remove_errors(struct cl_Solver *solver, struct cl_Constraint *cons) {
 	if (cons->marker.type == CL_ERROR) {
 		cl_mergerow(solver, &solver->objective, cons->marker, -cons->strength);
@@ -604,49 +573,6 @@ static void cl_remove_errors(struct cl_Solver *solver, struct cl_Constraint *con
 		solver->objective.constant = 0;
 	}
 	cons->marker = cons->other = cl_null();
-}
-
-static int cl_add_with_artificial(struct cl_Solver *solver, struct cl_Row *row, struct cl_Constraint *cons) {
-	cl_Symbol a = cl_newsymbol(solver, CL_SLACK);
-	cl_Term *term = NULL;
-	--solver->symbol_count; // artificial variable will be removed
-	struct cl_Row tmp;
-	cl_initrow(&tmp);
-	cl_addrow(solver, &tmp, row, 1);
-	cl_putrow(solver, a, row);
-	cl_initrow(row);
-	row = NULL; // row is useless
-	cl_optimize(solver, &tmp);
-	int ret = cl_nearzero(tmp.constant) ? CL_OK : CL_UNBOUND;
-	cl_freerow(&tmp);
-	if (cl_takerow(solver, a, &tmp)) {
-		cl_Symbol entry = cl_null();
-		if (cl_isconstant(&tmp)) {
-			cl_freerow(&tmp);
-			return ret;
-		}
-		while (cl_nextentry(&tmp.terms, (cl_Entry**)&term)) {
-			if (cl_ispivotable(cl_key(term))) {
-				entry = cl_key(term);
-				break;
-			}
-		}
-		if (!entry.id) {
-			cl_freerow(&tmp);
-			return CL_UNBOUND;
-		}
-		cl_solvefor(solver, &tmp, entry, a);
-		cl_substitute_rows(solver, entry, &tmp);
-		cl_putrow(solver, entry, &tmp);
-	}
-	while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
-		term = (cl_Term*)cl_gettable(&row->terms, a);
-		if (term) cl_delkey(&row->terms, term);
-	}
-	term = (cl_Term*)cl_gettable(&solver->objective.terms, a);
-	if (term) cl_delkey(&solver->objective.terms, term);
-	if (ret != CL_OK) cl_remove(solver, cons);
-	return ret;
 }
 
 static int cl_try_addrow(struct cl_Solver *solver, struct cl_Row *row, struct cl_Constraint *cons) {
@@ -678,98 +604,63 @@ static int cl_try_addrow(struct cl_Solver *solver, struct cl_Row *row, struct cl
 			}
 		}
 	}
-	if (!subject.id) return cl_add_with_artificial(solver, row, cons);
+	if (!subject.id) {
+		// add with artificial
+		cl_Symbol a = cl_newsymbol(solver, CL_SLACK);
+		cl_Term *term = NULL;
+		--solver->symbol_count; // artificial variable will be removed
+		struct cl_Row tmp;
+		cl_initrow(&tmp);
+		cl_addrow(solver, &tmp, row, 1);
+		cl_putrow(solver, a, row);
+		cl_initrow(row);
+		row = NULL; // row is useless
+		cl_optimize(solver, &tmp);
+		int ret = cl_nearzero(tmp.constant) ? CL_OK : CL_UNBOUND;
+		cl_freerow(&tmp);
+		if (cl_takerow(solver, a, &tmp)) {
+			cl_Symbol entry = cl_null();
+			if (cl_isconstant(&tmp)) {
+				cl_freerow(&tmp);
+				return ret;
+			}
+			while (cl_nextentry(&tmp.terms, (cl_Entry**)&term)) {
+				if (cl_ispivotable(cl_key(term))) {
+					entry = cl_key(term);
+					break;
+				}
+			}
+			if (!entry.id) {
+				cl_freerow(&tmp);
+				return CL_UNBOUND;
+			}
+			cl_solvefor(solver, &tmp, entry, a);
+			cl_substitute_rows(solver, entry, &tmp);
+			cl_putrow(solver, entry, &tmp);
+		}
+		while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
+			term = (cl_Term*)cl_gettable(&row->terms, a);
+			if (term) cl_delkey(&row->terms, term);
+		}
+		term = (cl_Term*)cl_gettable(&solver->objective.terms, a);
+		if (term) cl_delkey(&solver->objective.terms, term);
+		if (ret != CL_OK) cl_remove(solver, cons);
+		return ret;
+	}
 	cl_solvefor(solver, row, subject, cl_null());
 	cl_substitute_rows(solver, subject, row);
 	cl_putrow(solver, subject, row);
 	return CL_OK;
 }
 
-static cl_Symbol cl_get_leaving_row(struct cl_Solver *solver, cl_Symbol marker) {
-	cl_Symbol first = cl_null(), second = cl_null(), third = cl_null();
-	double r1 = INFINITY, r2 = INFINITY;
-	struct cl_Row *row = NULL;
-	while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
-		cl_Term *term = (cl_Term*)cl_gettable(&row->terms, marker);
-		if (!term) continue;
-		if (cl_key(row).type == CL_EXTERNAL) {
-			third = cl_key(row);
-		} else if (term->coefficient < 0) {
-			double r = -row->constant / term->coefficient;
-			if (r < r1) {
-				r1 = r;
-				first = cl_key(row);
-			}
-		} else {
-			double r = row->constant / term->coefficient;
-			if (r < r2) {
-				r2 = r;
-				second = cl_key(row);
-			}
-		}
-	}
-	return first.id ? first : second.id ? second : third;
-}
-
-static void cl_delta_edit_constant(struct cl_Solver *solver, double delta, struct cl_Constraint *cons) {
-	struct cl_Row *row;
-	if ((row = (struct cl_Row*)cl_gettable(&solver->rows, cons->marker))) {
-		row->constant -= delta;
-		cl_infeasible(solver, row);
-		return;
-	}
-	if ((row = (struct cl_Row*)cl_gettable(&solver->rows, cons->other))) {
-		row->constant += delta;
-		cl_infeasible(solver, row);
-		return;
-	}
-	while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
-		cl_Term *term = (cl_Term*)cl_gettable(&row->terms, cons->marker);
-		if (!term) continue;
-		row->constant += term->coefficient*delta;
-		if (cl_key(row).type == CL_EXTERNAL) {
-			cl_markdirty(solver, cl_sym2var(solver, cl_key(row)));
-		} else {
-			cl_infeasible(solver, row);
-		}
-	}
-}
-
-static void cl_dual_optimize(struct cl_Solver *solver) {
-	while (solver->infeasible_rows.id) {
-		cl_Symbol enter = cl_null();
-		cl_Term *objterm, *term = NULL;
-		double r, min_ratio = INFINITY;
-		struct cl_Row *row = (struct cl_Row*)cl_gettable(&solver->rows, solver->infeasible_rows);
-		assert(row);
-		cl_Symbol leave = cl_key(row);
-		solver->infeasible_rows = row->infeasible_next;
-		row->infeasible_next = cl_null();
-		if (cl_nearzero(row->constant) || row->constant >= 0) continue;
-		while (cl_nextentry(&row->terms, (cl_Entry**)&term)) {
-			cl_Symbol cur = cl_key(term);
-			if (cur.type == CL_DUMMY || term->coefficient <= 0) continue;
-			objterm = (cl_Term*)cl_gettable(&solver->objective.terms, cur);
-			r = objterm ? objterm->coefficient / term->coefficient : 0;
-			if (min_ratio > r) min_ratio = r, enter = cur;
-		}
-		assert(enter.id);
-		struct cl_Row tmp;
-		cl_takerow(solver, leave, &tmp);
-		cl_solvefor(solver, &tmp, enter, leave);
-		cl_substitute_rows(solver, enter, &tmp);
-		cl_putrow(solver, enter, &tmp);
-	}
-}
-
-void cl_newsolver(struct cl_Solver *solver) {
+void cl_begin_session(struct cl_Solver *solver) {
 	memset(solver, 0, sizeof(*solver));
 	cl_initrow(&solver->objective);
 	cl_inittable(&solver->vars, sizeof(cl_VarEntry));
 	cl_inittable(&solver->rows, sizeof(struct cl_Row));
 }
 
-void cl_delsolver(struct cl_Solver *solver) {
+void cl_end_session(struct cl_Solver *solver) {
 	struct cl_Row *row = NULL;
 	while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
 		cl_freerow(row);
@@ -792,7 +683,36 @@ void cl_updatevars(struct cl_Solver *solver) {
 int cl_add(struct cl_Solver *solver, struct cl_Constraint *cons) {
 	assert(cons && !cons->marker.id);
 	int oldsym = solver->symbol_count;
-	struct cl_Row row = cl_makerow(solver, cons);
+
+	struct cl_Row row;
+	cl_initrow(&row);
+	row.constant = cons->expression.constant;
+	cl_Term *term = NULL;
+	while (cl_nextentry(&cons->expression.terms, (cl_Entry**)&term)) {
+		cl_markdirty(solver, cl_sym2var(solver, cl_key(term)));
+		cl_mergerow(solver, &row, cl_key(term), term->coefficient);
+	}
+	if (!cons->equal) {
+		cl_initsymbol(solver, &cons->marker, CL_SLACK);
+		cl_addvar(solver, &row, cons->marker, -1);
+		if (cons->strength < CL_REQUIRED) {
+			cl_initsymbol(solver, &cons->other, CL_ERROR);
+			cl_addvar(solver, &row, cons->other, 1);
+			cl_addvar(solver, &solver->objective, cons->other, cons->strength);
+		}
+	} else if (cons->strength >= CL_REQUIRED) {
+		cl_initsymbol(solver, &cons->marker, CL_DUMMY);
+		cl_addvar(solver, &row, cons->marker, 1);
+	} else {
+		cl_initsymbol(solver, &cons->marker, CL_ERROR);
+		cl_initsymbol(solver, &cons->other, CL_ERROR);
+		cl_addvar(solver, &row, cons->marker, -1);
+		cl_addvar(solver, &row, cons->other, 1);
+		cl_addvar(solver, &solver->objective, cons->marker, cons->strength);
+		cl_addvar(solver, &solver->objective, cons->other, cons->strength);
+	}
+	if (row.constant < 0) cl_multiply(&row, -1);
+
 	int ret = cl_try_addrow(solver, &row, cons);
 	if (ret != CL_OK) {
 		cl_remove_errors(solver, cons);
@@ -811,7 +731,30 @@ void cl_remove(struct cl_Solver *solver, struct cl_Constraint *cons) {
 	cl_remove_errors(solver, cons);
 	struct cl_Row tmp;
 	if (!cl_takerow(solver, marker, &tmp)) {
-		cl_Symbol exit = cl_get_leaving_row(solver, marker);
+		// get_leaving_row
+		cl_Symbol first = cl_null(), second = cl_null(), third = cl_null();
+		double r1 = INFINITY, r2 = INFINITY;
+		struct cl_Row *row = NULL;
+		while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
+			cl_Term *term = (cl_Term*)cl_gettable(&row->terms, marker);
+			if (!term) continue;
+			if (cl_key(row).type == CL_EXTERNAL) {
+				third = cl_key(row);
+			} else if (term->coefficient < 0) {
+				double r = -row->constant / term->coefficient;
+				if (r < r1) {
+					r1 = r;
+					first = cl_key(row);
+				}
+			} else {
+				double r = row->constant / term->coefficient;
+				if (r < r2) {
+					r2 = r;
+					second = cl_key(row);
+				}
+			}
+		}
+		cl_Symbol exit = first.id ? first : second.id ? second : third;
 		assert(exit.id);
 		cl_takerow(solver, exit, &tmp);
 		cl_solvefor(solver, &tmp, marker, exit);
@@ -872,10 +815,59 @@ void cl_suggest(struct cl_Solver *solver, struct cl_Variable *var, double value)
 		cl_addedit(solver, var, CL_STRONG);
 		assert(var->constraint);
 	}
-	double delta = value - var->edit_value;
-	var->edit_value = value;
-	cl_delta_edit_constant(solver, delta, var->constraint);
-	cl_dual_optimize(solver);
+	{
+		double delta = value - var->edit_value;
+		var->edit_value = value;
+		// delta_edit_constant
+		struct cl_Constraint *cons = var->constraint;
+		struct cl_Row *row;
+		if ((row = (struct cl_Row*)cl_gettable(&solver->rows, cons->marker))) {
+			row->constant -= delta;
+			cl_infeasible(solver, row);
+			goto end_delta_edit_constant;
+		}
+		if ((row = (struct cl_Row*)cl_gettable(&solver->rows, cons->other))) {
+			row->constant += delta;
+			cl_infeasible(solver, row);
+			goto end_delta_edit_constant;
+		}
+		while (cl_nextentry(&solver->rows, (cl_Entry**)&row)) {
+			cl_Term *term = (cl_Term*)cl_gettable(&row->terms, cons->marker);
+			if (!term) continue;
+			row->constant += term->coefficient*delta;
+			if (cl_key(row).type == CL_EXTERNAL) {
+				cl_markdirty(solver, cl_sym2var(solver, cl_key(row)));
+			} else {
+				cl_infeasible(solver, row);
+			}
+		}
+	}
+end_delta_edit_constant:
+	// dual optimize
+	while (solver->infeasible_rows.id) {
+		cl_Symbol enter = cl_null();
+		cl_Term *objterm, *term = NULL;
+		double r, min_ratio = INFINITY;
+		struct cl_Row *row = (struct cl_Row*)cl_gettable(&solver->rows, solver->infeasible_rows);
+		assert(row);
+		cl_Symbol leave = cl_key(row);
+		solver->infeasible_rows = row->infeasible_next;
+		row->infeasible_next = cl_null();
+		if (cl_nearzero(row->constant) || row->constant >= 0) continue;
+		while (cl_nextentry(&row->terms, (cl_Entry**)&term)) {
+			cl_Symbol cur = cl_key(term);
+			if (cur.type == CL_DUMMY || term->coefficient <= 0) continue;
+			objterm = (cl_Term*)cl_gettable(&solver->objective.terms, cur);
+			r = objterm ? objterm->coefficient / term->coefficient : 0;
+			if (min_ratio > r) min_ratio = r, enter = cur;
+		}
+		assert(enter.id);
+		struct cl_Row tmp;
+		cl_takerow(solver, leave, &tmp);
+		cl_solvefor(solver, &tmp, enter, leave);
+		cl_substitute_rows(solver, enter, &tmp);
+		cl_putrow(solver, enter, &tmp);
+	}
 	if (solver->auto_update) cl_updatevars(solver);
 }
 
@@ -915,11 +907,11 @@ void cl_dumpsolver(struct cl_Solver *solver) {
 }
 
 int main() {
-	struct cl_Solver S; cl_newsolver(&S);
+	struct cl_Solver S; cl_begin_session(&S);
 
-	struct cl_Variable x1; cl_newvariable(&S, &x1);
-	struct cl_Variable xm; cl_newvariable(&S, &xm);
-	struct cl_Variable x2; cl_newvariable(&S, &x2);
+	struct cl_Variable x1; cl_define_variable(&S, &x1);
+	struct cl_Variable xm; cl_define_variable(&S, &xm);
+	struct cl_Variable x2; cl_define_variable(&S, &x2);
 
 	// c3: x1 >= 0
 	struct cl_Constraint c3; cl_newconstraint(&S, &c3, CL_REQUIRED, false);
@@ -964,5 +956,5 @@ int main() {
 	printf("%g, %g, %g\n", x1.value, xm.value, x2.value);
 
 	cl_deledit(&S, &xm);
-	cl_delsolver(&S);
+	cl_end_session(&S);
 }
