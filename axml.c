@@ -33,19 +33,31 @@ size_t utf8_utf16_length(const char *s) {
 // With the storage allocated ahead of time, strings too long are rejected and cause panic.
 // All the strings are null-terminated, laid out sequentially in memory, and encoded in UTF-8.
 // The last string in the pool comes with an additional zero byte which indicates the end.
-//   begin                                                                    end
-//   ['H']['i'][ 0 ]['H']['e']['l']['l']['o'][ 0 ]['A'][ 0 ][ 0 ][   ] … [   ]
+//   begin = #0      #1                            #2                         end
+//   ['H']['i'][ 0 ]['H']['e']['l']['l']['o'][ 0 ]['i'][ 0 ][ 0 ][   ] … [   ]
+//   styles
+//   [ −1 ][  2 ][  0 ][  0 ][  2 ][  2 ][  3 ][ −1 ][ −1 ][    ] …
+// The example above illustrates a pool with three strings, namely "Hi", HTML "<i>H</i>e<i>ll</i>o" and "i".
+// Since styling in an identifier pool is meaningless, the styleCount field in ResStringPool_header is either 0 or equal to stringCount in this implementation. The storage for styles is allocated upon the first call to arsc_append_styled.
 struct arsc_string_pool {
 	char *begin;
 	const char *end;
 	size_t count;
+	uint32_t *styles;
+	size_t style_word_count;
 };
 
 void arsc_begin_string_pool(struct arsc_string_pool *this) {
 	this->begin = calloc(4096, 1);
+	if (!this->begin) {
+		perror("calloc");
+		exit(EXIT_FAILURE);
+	}
 	this->end = this->begin + 4096;
 	// To ease pooling, the first string is always the empty string.
 	this->count = 1;
+	this->styles = NULL;
+	this->style_word_count = 0;
 }
 
 size_t arsc_intern(struct arsc_string_pool *this, const char *s) {
@@ -62,6 +74,9 @@ size_t arsc_intern(struct arsc_string_pool *this, const char *s) {
 	if (p + strlen(s) + 1 >= this->end) fprintf(stderr, "%s\n", __func__), exit(EXIT_FAILURE);
 	strcpy(p, s);
 	this->count = n + 1;
+	if (this->styles) {
+		this->styles[this->style_word_count++] = UINT32_MAX;
+	}
 	return n;
 }
 
@@ -71,17 +86,25 @@ void arsc_end_string_pool(struct arsc_string_pool *this, FILE *fp) {
 	write16(fp, 28); // headerSize
 	write32(fp, 0); // size (to be calculated)
 	write32(fp, this->count); // stringCount
-	write32(fp, 0); // styleCount
-	write32(fp, 1 << 8); // UTF8_FLAG
-	write32(fp, this->count * 4 + 28); // stringsStart
-	write32(fp, 0); // stylesStart
-	for (size_t i = 0; i < this->count; i++) write32(fp, 0);
+	if (this->styles) {
+		write32(fp, this->count); // styleCount
+		write32(fp, 1 << 8); // UTF8_FLAG
+		write32(fp, this->count * 8 + 28); // stringsStart
+		write32(fp, 0); // stylesStart (to be calculated)
+		for (size_t i = 0; i < this->count * 2; i++) write32(fp, 0);
+	} else {
+		write32(fp, 0); // styleCount
+		write32(fp, 1 << 8); // UTF8_FLAG
+		write32(fp, this->count * 4 + 28); // stringsStart
+		write32(fp, 0); // stylesStart
+		for (size_t i = 0; i < this->count; i++) write32(fp, 0);
+	}
 
 	long pos[this->count];
 	pos[0] = ftell(fp);
-	fputc(0, fp);
-	fputc(0, fp);
-	fputc(0, fp);
+	write8(fp, 0);
+	write8(fp, 0);
+	write8(fp, 0);
 	const char *p = this->begin;
 	for (size_t i = 1; i < this->count; i++) {
 		pos[i] = ftell(fp);
@@ -94,13 +117,95 @@ void arsc_end_string_pool(struct arsc_string_pool *this, FILE *fp) {
 	write_align_to(fp, 4);
 
 	long size = ftell(fp) - start;
+	if (this->styles) {
+		for (size_t i = 0; i < this->style_word_count; i++) {
+			write32(fp, this->styles[i]);
+		}
+		fseek(fp, start + 24, SEEK_SET);
+		write32(fp, size); // stylesStart
+		for (size_t i = 0; i < this->count; i++) {
+			write32(fp, pos[i] - pos[0]);
+		}
+		uint32_t *p = this->styles;
+		for (size_t i = 0; i < this->count; i++) {
+			write32(fp, (p - this->styles) * 4);
+			while (*p != UINT32_MAX) p++;
+			p++;
+		}
+		size += this->style_word_count * 4;
+	} else {
+		fseek(fp, start + 28, SEEK_SET);
+		for (size_t i = 0; i < this->count; i++) {
+			write32(fp, pos[i] - pos[0]);
+		}
+	}
 	fseek(fp, start + 4, SEEK_SET);
 	write32(fp, size);
-	fseek(fp, start + 28, SEEK_SET);
-	for (size_t i = 0; i < this->count; i++) {
-		write32(fp, pos[i] - pos[0]);
-	}
 	fseek(fp, 0, SEEK_END);
+}
+
+size_t arsc_append_styled(struct arsc_string_pool *this, const char *html) {
+	if (!this->styles) {
+		this->styles = malloc(1024 * 4);
+		if (!this->styles) {
+			perror("malloc");
+			return arsc_intern(this, html);
+		}
+		memset(this->styles, 0xff, this->count * 4);
+		this->style_word_count = this->count;
+	}
+	char s[strlen(html) + 1];
+	char tag[sizeof(s) - 4];
+	size_t tags[sizeof(s) / 7 + 1];
+	size_t tag_count = 0;
+	bool inside_attribute;
+	const char *src = html;
+	char *dest = s, *dest_tag = NULL;
+	while (*src) {
+	case '<':
+		if (*src == '/') {
+			src = strchr(src, '>');
+		} else {
+			dest_tag = tag;
+			inside_attribute = false;
+		}
+		break;
+	case ' ':
+		if (dest_tag) {
+			*dest_tag++ = inside_attribute ? ' ' : ';';
+		} else {
+			*dest++ = ' ';
+		}
+		break;
+	case '=':
+		if (dest_tag) {
+			inside_attribute = true;
+		} else {
+			*dest++ = '=';
+		}
+	case '>':
+		if (dest_tag) {
+			*dest_tag = 0;
+			tags[tag_count++] = arsc_intern(this, tag);
+puts(tag);
+			dest_tag = NULL;
+		}
+		break;
+	default:
+		*(dest_tag ? dest_tag++ : dest++) = src[-1];
+		break;
+	}
+	*dest = 0;
+puts(s);
+for (size_t i = 0; i < tag_count; i++) printf("[%u] %u\n",i,tags[i]);
+
+	char *p;
+	size_t n = 1;
+	for (p = this->begin; *p; p += strlen(p) + 1) n++;
+	strcpy(p, s);
+	this->count = n + 1;
+	this->styles[this->style_word_count++] = UINT32_MAX;
+	return n;
 }
 
 struct axml_file {
@@ -306,6 +411,8 @@ int main(int argc, char **argv) {
 			axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
 		axml_end_element(&m);
 		axml_begin_element(&m, NULL, "application");
+arsc_append_styled(&m.string_pool, "我的第一个 <i>Java</i> 应用程序");
+arsc_append_styled(&m.string_pool, "My <big disabled style=\"wow &gt; this &amp; that\" >first</big> <i>J<u>av</u>a</i> application");
 			axml_set_string(&m, ANDROID_RESOURCES, "label", "我的第一个 Java 应用程序");
 			axml_set_reference(&m, ANDROID_RESOURCES, "icon", 0x7f020000);
 			axml_begin_element(&m, NULL, "activity");
