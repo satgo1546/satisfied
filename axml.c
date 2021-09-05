@@ -132,6 +132,7 @@ void arsc_end_string_pool(struct arsc_string_pool *this, FILE *fp) {
 			while (*p != UINT32_MAX) p++;
 			p++;
 		}
+		// It is said that the style data section should be terminated by two more 0xffffffff's. No more words are written here; no problems are encountered so far, either.
 		size += this->style_word_count * 4;
 	} else {
 		fseek(fp, start + 28, SEEK_SET);
@@ -144,66 +145,73 @@ void arsc_end_string_pool(struct arsc_string_pool *this, FILE *fp) {
 	fseek(fp, 0, SEEK_END);
 }
 
-size_t arsc_append_styled(struct arsc_string_pool *this, const char *html) {
+//   \1 = Start Of tag Header
+//   \2 = Start Of tag Text
+//   \3 = End Of tag Text and also the tag itself
+// because writing an HTML parser for the sole purpose of generating rich text is a coder's shame.
+// For instance, the markup
+//   <font face="monospace" color="#663399">It is <u>true</u>.</font>
+// translates to
+//   "\1font;face=monospace;color=#663399\2It is \1u\2true\3.\3"
+// The first four ASCII control characters are now seeing such a perfectly matched renaissance, if not a bit ugly.
+// arsc_intern matches against the plain text, which should be how resources work. However, Android refuses to install the APK blatantly if (for example) the app name is associated with style data. If a true plain entry is needed, call arsc_intern first.
+size_t arsc_append_styled(struct arsc_string_pool *this, const char *control) {
 	if (!this->styles) {
 		this->styles = malloc(1024 * 4);
 		if (!this->styles) {
 			perror("malloc");
-			return arsc_intern(this, html);
+			return arsc_intern(this, control);
 		}
 		memset(this->styles, 0xff, this->count * 4);
 		this->style_word_count = this->count;
 	}
-	char s[strlen(html) + 1];
-	char tag[sizeof(s) - 4];
-	size_t tags[sizeof(s) / 7 + 1];
+
+	// As s is scanned, plain text is filtered in-place, as the plain text will always be shorter than the formatted control string.
+	char s[strlen(control) + 1];
+	strcpy(s, control);
+	// \1i\2\3 is the shortest possible tag, <i></i>.
+	size_t tags[(sizeof(s) - 1) / 4 + 1][3];
 	size_t tag_count = 0;
-	bool inside_attribute;
-	const char *src = html;
-	char *dest = s, *dest_tag = NULL;
-	while (*src) {
-	case '<':
-		if (*src == '/') {
-			src = strchr(src, '>');
-		} else {
-			dest_tag = tag;
-			inside_attribute = false;
+	char *src = s, *dest = s;
+	while (*src) switch (*src++) {
+	case 1:
+		{
+			char *const p = strchr(src, 2);
+			*p = 0;
+			tags[tag_count][0] = arsc_intern(this, src); // name
+			tags[tag_count][1] = dest - s; // firstChar
+			tags[tag_count][2] = SIZE_MAX; // lastChar
+			tag_count++;
+			src = p + 1;
 		}
 		break;
-	case ' ':
-		if (dest_tag) {
-			*dest_tag++ = inside_attribute ? ' ' : ';';
-		} else {
-			*dest++ = ' ';
-		}
+	case 2:
+		abort();
 		break;
-	case '=':
-		if (dest_tag) {
-			inside_attribute = true;
-		} else {
-			*dest++ = '=';
-		}
-	case '>':
-		if (dest_tag) {
-			*dest_tag = 0;
-			tags[tag_count++] = arsc_intern(this, tag);
-puts(tag);
-			dest_tag = NULL;
+	case 3:
+		for (size_t i = tag_count - 1; i != SIZE_MAX; i--) {
+			if (tags[i][2] == SIZE_MAX) {
+				tags[i][2] = dest - s - 1;
+				break;
+			}
 		}
 		break;
 	default:
-		*(dest_tag ? dest_tag++ : dest++) = src[-1];
-		break;
+		*dest++ = src[-1];
 	}
 	*dest = 0;
-puts(s);
-for (size_t i = 0; i < tag_count; i++) printf("[%u] %u\n",i,tags[i]);
 
 	char *p;
 	size_t n = 1;
 	for (p = this->begin; *p; p += strlen(p) + 1) n++;
 	strcpy(p, s);
 	this->count = n + 1;
+	for (size_t i = 0; i < tag_count; i++) {
+		// ResStringPool_span
+		for (size_t j = 0; j < 3; j++) {
+			this->styles[this->style_word_count++] = tags[i][j];
+		}
+	}
 	this->styles[this->style_word_count++] = UINT32_MAX;
 	return n;
 }
@@ -411,8 +419,6 @@ int main(int argc, char **argv) {
 			axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
 		axml_end_element(&m);
 		axml_begin_element(&m, NULL, "application");
-arsc_append_styled(&m.string_pool, "我的第一个 <i>Java</i> 应用程序");
-arsc_append_styled(&m.string_pool, "My <big disabled style=\"wow &gt; this &amp; that\" >first</big> <i>J<u>av</u>a</i> application");
 			axml_set_string(&m, ANDROID_RESOURCES, "label", "我的第一个 Java 应用程序");
 			axml_set_reference(&m, ANDROID_RESOURCES, "icon", 0x7f020000);
 			axml_begin_element(&m, NULL, "activity");
