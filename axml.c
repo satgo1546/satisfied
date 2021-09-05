@@ -48,11 +48,12 @@ struct arsc_string_pool {
 };
 
 void arsc_begin_string_pool(struct arsc_string_pool *this) {
-	this->begin = calloc(4096, 1);
+	this->begin = malloc(4096);
 	if (!this->begin) {
-		perror("calloc");
+		perror("malloc");
 		exit(EXIT_FAILURE);
 	}
+	*this->begin = 0;
 	this->end = this->begin + 4096;
 	// To ease pooling, the first string is always the empty string.
 	this->count = 1;
@@ -73,6 +74,7 @@ size_t arsc_intern(struct arsc_string_pool *this, const char *s) {
 	}
 	if (p + strlen(s) + 1 >= this->end) fprintf(stderr, "%s\n", __func__), exit(EXIT_FAILURE);
 	strcpy(p, s);
+	p[strlen(p) + 1] = 0;
 	this->count = n + 1;
 	if (this->styles) {
 		this->styles[this->style_word_count++] = UINT32_MAX;
@@ -205,6 +207,7 @@ size_t arsc_append_styled(struct arsc_string_pool *this, const char *control) {
 	size_t n = 1;
 	for (p = this->begin; *p; p += strlen(p) + 1) n++;
 	strcpy(p, s);
+	p[strlen(p) + 1] = 0;
 	this->count = n + 1;
 	for (size_t i = 0; i < tag_count; i++) {
 		// ResStringPool_span
@@ -215,6 +218,53 @@ size_t arsc_append_styled(struct arsc_string_pool *this, const char *control) {
 	this->styles[this->style_word_count++] = UINT32_MAX;
 	return n;
 }
+
+
+
+struct arsc_file {
+	FILE *fp;
+	struct arsc_string_pool string_pool;
+};
+
+void arsc_begin_file(struct arsc_file *this) {
+	this->fp = tmpfile();
+	if (!this->fp) {
+		perror("tmpfile");
+		exit(EXIT_FAILURE);
+	}
+	arsc_begin_string_pool(&this->string_pool);
+}
+
+void arsc_end_file(struct arsc_file *this, const char *filename) {
+	FILE *fp = fopen(filename, "wb");
+	if (!fp) {
+		perror("fopen");
+		exit(EXIT_FAILURE);
+	}
+
+	const long start = ftell(fp);
+	write16(fp, 0x0002); // RES_TABLE_TYPE
+	write16(fp, 12); // headerSize
+	write32(fp, 0); // size (to be calculated)
+	write32(fp, 1); // packageCount
+
+	arsc_end_string_pool(&this->string_pool, fp);
+
+	/*write16(fp, 0x0180); // RES_XML_RESOURCE_MAP_TYPE
+	write16(fp, 8); // headerSize
+	write32(fp, this->attr_count * 4 + 8); // size
+	rewind(this->contents);
+	copy_fp(fp, this->contents);*/
+
+	long size = ftell(fp) - start;
+	fseek(fp, start + 4, SEEK_SET);
+	write32(fp, size);
+
+	fclose(fp);
+	fclose(this->fp);
+}
+
+
 
 struct axml_file {
 	FILE *contents;
