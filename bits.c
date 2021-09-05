@@ -61,9 +61,10 @@ void seek(FILE *f, long offset) {
 	}
 }
 
-void write_padding_to(FILE *f, size_t alignment) {
+void write_align_to(FILE *f, size_t alignment) {
 	size_t pos = ftell(f);
-	if (pos % alignment) fprintf(f, "%*c", (int) (alignment - pos % alignment), 0);
+	if (pos % alignment == 0) return;
+	for (size_t i = 0; i < alignment - pos % alignment; i++) write8(f, 0);
 }
 
 size_t align_to(size_t value, size_t alignment) {

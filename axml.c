@@ -5,6 +5,9 @@
 // The above files are placed accordingly as of Android S.
 // They have long existed before Android 1.6, but the directory structure has changed much and may still change in the future.
 
+// aapt dump xmltree a.apk AndroidManifest.xml
+// aapt dump xmlstrings a.apk AndroidManifest.xml
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -14,6 +17,9 @@
 
 #include "bits.c"
 
+// UTF8_FLAG gets introduced in Android 2.2.
+// utf8_to_utf16_length is used to get the “length” of a string in ResourceTypes.cpp.
+// The “length” field is therefore in UTF-16 codes (i.e., codepoints outside BMP count as two) instead of codepoints.
 size_t utf8_utf16_length(const char *s) {
 	size_t r = 0;
 	while (*s) {
@@ -23,14 +29,85 @@ size_t utf8_utf16_length(const char *s) {
 	return r;
 }
 
+// arsc_string_pool implements the ResStringPool chunk in a simple-minded manner.
+// With the storage allocated ahead of time, strings too long are rejected and cause panic.
+// All the strings are null-terminated, laid out sequentially in memory, and encoded in UTF-8.
+// The last string in the pool comes with an additional zero byte which indicates the end.
+//   begin                                                                    end
+//   ['H']['i'][ 0 ]['H']['e']['l']['l']['o'][ 0 ]['A'][ 0 ][ 0 ][   ] … [   ]
+struct arsc_string_pool {
+	char *begin;
+	const char *end;
+	size_t count;
+};
+
+void arsc_begin_string_pool(struct arsc_string_pool *this) {
+	this->begin = calloc(4096, 1);
+	this->end = this->begin + 4096;
+	// To ease pooling, the first string is always the empty string.
+	this->count = 1;
+}
+
+size_t arsc_intern(struct arsc_string_pool *this, const char *s) {
+	// getAttributeNamespaceID returns -1 if there is no namespace.
+	if (!s) return SIZE_MAX;
+	if (!*s) return 0;
+	// Do a linear search for an existing entry.
+	char *p;
+	size_t n = 1;
+	for (p = this->begin; *p; p += strlen(p) + 1) {
+		if (strcmp(s, p) == 0) return n;
+		n++;
+	}
+	if (p + strlen(s) + 1 >= this->end) fprintf(stderr, "%s\n", __func__), exit(EXIT_FAILURE);
+	strcpy(p, s);
+	this->count = n + 1;
+	return n;
+}
+
+void arsc_end_string_pool(struct arsc_string_pool *this, FILE *fp) {
+	long start = ftell(fp);
+	write16(fp, 0x0001); // RES_STRING_POOL_TYPE
+	write16(fp, 28); // headerSize
+	write32(fp, 0); // size (to be calculated)
+	write32(fp, this->count); // stringCount
+	write32(fp, 0); // styleCount
+	write32(fp, 1 << 8); // UTF8_FLAG
+	write32(fp, this->count * 4 + 28); // stringsStart
+	write32(fp, 0); // stylesStart
+	for (size_t i = 0; i < this->count; i++) write32(fp, 0);
+
+	long pos[this->count];
+	pos[0] = ftell(fp);
+	fputc(0, fp);
+	fputc(0, fp);
+	fputc(0, fp);
+	const char *p = this->begin;
+	for (size_t i = 1; i < this->count; i++) {
+		pos[i] = ftell(fp);
+		size_t len = strlen(p);
+		writelen7or15(fp, utf8_utf16_length(p));
+		writelen7or15(fp, len);
+		fwrite(p, 1, len + 1, fp);
+		p += len + 1;
+	}
+	write_align_to(fp, 4);
+
+	long size = ftell(fp) - start;
+	fseek(fp, start + 4, SEEK_SET);
+	write32(fp, size);
+	fseek(fp, start + 28, SEEK_SET);
+	for (size_t i = 0; i < this->count; i++) {
+		write32(fp, pos[i] - pos[0]);
+	}
+	fseek(fp, 0, SEEK_END);
+}
+
 struct axml_file {
-	FILE *fp;
 	FILE *contents;
 	size_t attr_count;
-	char *string_pool;
-	const char *string_pool_end;
-	size_t string_count;
 	bool inside_header;
+	struct arsc_string_pool string_pool;
 	struct {
 		long pos;
 		size_t ns;
@@ -40,112 +117,57 @@ struct axml_file {
 	size_t stack_top;
 };
 
-size_t axml_intern(struct axml_file *this, const char *s) {
-	// getAttributeNamespaceID returns -1 if there is no namespace.
-	if (!s) return SIZE_MAX;
-	if (!*s) return 0;
-	char *p;
-	size_t n = 1;
-	for (p = this->string_pool; *p; p += strlen(p) + 1) {
-		if (strcmp(s, p) == 0) return n;
-		n++;
-	}
-	if (p + strlen(s) + 1 >= this->string_pool_end) fprintf(stderr, "%s\n", __func__), exit(EXIT_FAILURE);
-	strcpy(p, s);
-	this->string_count = n + 1;
-	return n;
-}
-
-// UTF8_FLAG gets introduced in Android 2.2.
-// utf8_to_utf16_length is used to get the “length” of a string in ResourceTypes.cpp.
-// The “length” field is therefore in UTF-16 codes (i.e., codepoints outside BMP count as two) instead of codepoints.
-
-void axml_begin_file(struct axml_file *this, const char *filename) {
-	this->fp = fopen(filename, "wb");
-	if (!this->fp) {
-		perror("fopen");
-		exit(EXIT_FAILURE);
-	}
+void axml_begin_file(struct axml_file *this) {
 	this->contents = tmpfile();
 	if (!this->contents) {
 		perror("tmpfile");
 		exit(EXIT_FAILURE);
 	}
-	// This is a hack to ease string-pooling.
-	// The first string/attribute is always the empty string.
-	// Its ID is set arbitrarily as long as there is no conflict.
+	// The first empty entry in a string pool is mandatory in this implementation.
+	// Its attribute ID is set arbitrarily as long as there is no conflict.
 	this->attr_count = 1;
-	this->string_pool = calloc(4096, 1);
-	this->string_pool_end = this->string_pool + 4096;
-	this->string_count = 1;
+	arsc_begin_string_pool(&this->string_pool);
 	this->inside_header = true;
 	this->stack_top = 0;
 	write32(this->contents, 0x0101fffe);
 }
 
-void axml_end_header(struct axml_file *this) {
+static void axml_end_header(struct axml_file *this) {
 	if (this->inside_header) {
 		this->inside_header = false;
+		// Files converted from textual XML are naturally with RES_XML_START_NAMESPACE_TYPE and RES_XML_END_NAMESPACE_TYPE blocks, but they are unused in PackageParser, so we don't need them.
 	}
 }
 
-void axml_end_file(struct axml_file *this) {
+void axml_end_file(struct axml_file *this, const char *filename) {
 	// A valid XML document must have a root tag.
 	assert(!this->inside_header);
 	assert(!this->stack_top);
 
-	const long file_start = ftell(this->fp);
-	write16(this->fp, 0x0003); // RES_XML_TYPE
-	write16(this->fp, 8); // headerSize
-	write32(this->fp, 0); // size (to be calculated)
-
-	long start = ftell(this->fp);
-	write16(this->fp, 0x0001); // RES_STRING_POOL_TYPE
-	write16(this->fp, 28); // headerSize
-	write32(this->fp, 0); // size (to be calculated)
-	write32(this->fp, this->string_count); // stringCount
-	write32(this->fp, 0); // styleCount
-	write32(this->fp, 1 << 8); // UTF8_FLAG
-	write32(this->fp, this->string_count * 4 + 28); // stringsStart
-	write32(this->fp, 0); // stylesStart
-	for (size_t i = 0; i < this->string_count; i++) write32(this->fp, 0);
-
-	long pos[this->string_count];
-	pos[0] = ftell(this->fp);
-	fputc(0, this->fp);
-	fputc(0, this->fp);
-	fputc(0, this->fp);
-	const char *p = this->string_pool;
-	for (size_t i = 1; i < this->string_count; i++) {
-		pos[i] = ftell(this->fp);
-		size_t len = strlen(p);
-		writelen7or15(this->fp, utf8_utf16_length(p));
-		writelen7or15(this->fp, len);
-		fwrite(p, 1, len + 1, this->fp);
-		p += len + 1;
+	FILE *fp = fopen(filename, "wb");
+	if (!fp) {
+		perror("fopen");
+		exit(EXIT_FAILURE);
 	}
-	write_padding_to(this->fp, 4);
 
-	long size = ftell(this->fp) - start;
-	fseek(this->fp, start + 4, SEEK_SET);
-	write32(this->fp, size);
-	fseek(this->fp, start + 28, SEEK_SET);
-	for (size_t i = 0; i < this->string_count; i++) {
-		write32(this->fp, pos[i] - pos[0]);
-	}
-	fseek(this->fp, 0, SEEK_END);
+	const long start = ftell(fp);
+	write16(fp, 0x0003); // RES_XML_TYPE
+	write16(fp, 8); // headerSize
+	write32(fp, 0); // size (to be calculated)
 
-	write16(this->fp, 0x0180); // RES_XML_RESOURCE_MAP_TYPE
-	write16(this->fp, 8); // headerSize
-	write32(this->fp, this->attr_count * 4 + 8); // size
+	arsc_end_string_pool(&this->string_pool, fp);
+
+	write16(fp, 0x0180); // RES_XML_RESOURCE_MAP_TYPE
+	write16(fp, 8); // headerSize
+	write32(fp, this->attr_count * 4 + 8); // size
 	rewind(this->contents);
-	copy_fp(this->fp, this->contents);
+	copy_fp(fp, this->contents);
 
-	size = ftell(this->fp) - file_start;
-	fseek(this->fp, file_start + 4, SEEK_SET);
-	write32(this->fp, size);
+	long size = ftell(fp) - start;
+	fseek(fp, start + 4, SEEK_SET);
+	write32(fp, size);
 
-	fclose(this->fp);
+	fclose(fp);
 	fclose(this->contents);
 }
 
@@ -153,9 +175,9 @@ void axml_define_attr(struct axml_file *this, uint32_t id, const char *name) {
 	assert(this->inside_header);
 	assert(name && *name);
 	write32(this->contents, id);
-	axml_intern(this, name);
+	arsc_intern(&this->string_pool, name);
 	this->attr_count++;
-	assert(this->string_count == this->attr_count);
+	assert(this->string_pool.count == this->attr_count);
 }
 
 void axml_end_begin_element(struct axml_file *this) {
@@ -174,8 +196,8 @@ void axml_begin_element(struct axml_file *this, const char *ns, const char *name
 	axml_end_begin_element(this);
 	if (this->stack_top >= 16) fprintf(stderr, "%s\n", __func__), exit(EXIT_FAILURE);
 	this->stack[this->stack_top].pos = ftell(this->contents);
-	this->stack[this->stack_top].ns = axml_intern(this, ns);
-	this->stack[this->stack_top].name = axml_intern(this, name);
+	this->stack[this->stack_top].ns = arsc_intern(&this->string_pool, ns);
+	this->stack[this->stack_top].name = arsc_intern(&this->string_pool, name);
 	this->stack[this->stack_top].attribute_count = 0;
 	this->stack_top++;
 	write16(this->contents, 0x0102); // RES_XML_START_ELEMENT_TYPE
@@ -215,10 +237,9 @@ void axml_set_attribute(struct axml_file *this, const char *ns, const char *name
 	// The ns field points to the URI (instead of the name) of the desired namespace.
 	// aapt always shows the name whether the ns field points to the name or the URI.
 	// If the field is set incorrectly in AndroidManifest.xml, one will be greeted with the error “No value supplied for <android:name>” when installing the APK.
-	#define ANDROID_RESOURCES "http://schemas.android.com/apk/res/android"
-	write32(this->contents, axml_intern(this, ns && strcmp(ns, "android") == 0 ? ANDROID_RESOURCES : NULL)); // ns
-	write32(this->contents, axml_intern(this, name)); // name
-	write32(this->contents, axml_intern(this, raw_value)); // rawValue
+	write32(this->contents, arsc_intern(&this->string_pool, ns)); // ns
+	write32(this->contents, arsc_intern(&this->string_pool, name)); // name
+	write32(this->contents, arsc_intern(&this->string_pool, raw_value)); // rawValue
 	write16(this->contents, 8); // typedValue.size
 	write8(this->contents, 0); // typedValue.res0
 	write8(this->contents, type); // typedValue.type
@@ -245,7 +266,7 @@ void axml_set_int32(struct axml_file *this, const char *ns, const char *name, in
 void axml_set_string(struct axml_file *this, const char *ns, const char *name, const char *data) {
 	// `aapt dump xmltree` doesn't even care about the typed data if the type is TYPE_STRING.
 	// It only looks for the raw value, outputting it twice.
-	axml_set_attribute(this, ns, name, data, 0x03, axml_intern(this, data)); // TYPE_STRING
+	axml_set_attribute(this, ns, name, data, 0x03, arsc_intern(&this->string_pool, data)); // TYPE_STRING
 }
 
 void axml_set_bool(struct axml_file *this, const char *ns, const char *name, bool data) {
@@ -260,7 +281,7 @@ void axml_set_reference(struct axml_file *this, const char *ns, const char *name
 
 int main(int argc, char **argv) {
 	struct axml_file m;
-	axml_begin_file(&m, "mani.bin");
+	axml_begin_file(&m);
 	axml_define_attr(&m, 0x0101021b, "versionCode");
 	axml_define_attr(&m, 0x0101021c, "versionName");
 	axml_define_attr(&m, 0x0101020c, "minSdkVersion");
@@ -272,42 +293,44 @@ int main(int argc, char **argv) {
 	axml_define_attr(&m, 0x0101001b, "grantUriPermissions");
 	axml_define_attr(&m, 0x01010010, "exported");
 
+	#define ANDROID_RESOURCES "http://schemas.android.com/apk/res/android"
 	axml_begin_element(&m, NULL, "manifest");
-		axml_set_int32(&m, "android", "versionCode", 1);
-		axml_set_string(&m, "android", "versionName", "哼，哼，啊啊啊啊啊");
-		axml_set_string(&m, NULL, "package", "com.example.hello");
+		axml_set_int32(&m, ANDROID_RESOURCES, "versionCode", 1);
+		axml_set_string(&m, ANDROID_RESOURCES, "versionName", "哼，哼，啊啊啊啊啊");
+		axml_set_string(&m, NULL, "package", "net.hanshq.hello");
 		axml_begin_element(&m, NULL, "uses-sdk");
-			axml_set_int32(&m, "android", "minSdkVersion", 10);
-			axml_set_int32(&m, "android", "targetSdkVersion", 29);
+			axml_set_int32(&m, ANDROID_RESOURCES, "minSdkVersion", 10);
+			axml_set_int32(&m, ANDROID_RESOURCES, "targetSdkVersion", 29);
 		axml_end_element(&m);
 		axml_begin_element(&m, NULL, "uses-permission");
-			axml_set_string(&m, "android", "name", "android.permission.REQUEST_INSTALL_PACKAGES");
+			axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
 		axml_end_element(&m);
 		axml_begin_element(&m, NULL, "application");
-			axml_set_string(&m, "android", "label", "我的第一个 Java 应用程序");
-			axml_set_reference(&m, "android", "icon", 0x7f020000);
+			axml_set_string(&m, ANDROID_RESOURCES, "label", "我的第一个 Java 应用程序");
+			axml_set_reference(&m, ANDROID_RESOURCES, "icon", 0x7f020000);
 			axml_begin_element(&m, NULL, "activity");
-				axml_set_string(&m, "android", "name", ".MainActivity");
+				axml_set_string(&m, ANDROID_RESOURCES, "name", ".MainActivity");
+				axml_set_bool(&m, ANDROID_RESOURCES, "exported", true);
 				axml_begin_element(&m, NULL, "intent-filter");
 					axml_begin_element(&m, NULL, "action");
-						axml_set_string(&m, "android", "name", "android.intent.action.MAIN");
+						axml_set_string(&m, ANDROID_RESOURCES, "name", "android.intent.action.MAIN");
 					axml_end_element(&m);
 					axml_begin_element(&m, NULL, "category");
-						axml_set_string(&m, "android", "name", "android.intent.category.LAUNCHER");
+						axml_set_string(&m, ANDROID_RESOURCES, "name", "android.intent.category.LAUNCHER");
 					axml_end_element(&m);
 				axml_end_element(&m);
 			axml_end_element(&m);
 			axml_begin_element(&m, NULL, "provider");
-				axml_set_string(&m, "android", "name", ".FileProvider");
-				axml_set_bool(&m, "android", "exported", false);
-				axml_set_string(&m, "android", "authorities", "com.example.hello.FileProvider");
-				axml_set_bool(&m, "android", "grantUriPermissions", true);
+				axml_set_string(&m, ANDROID_RESOURCES, "name", ".FileProvider");
+				axml_set_bool(&m, ANDROID_RESOURCES, "exported", false);
+				axml_set_string(&m, ANDROID_RESOURCES, "authorities", "net.hanshq.hello.FileProvider");
+				axml_set_bool(&m, ANDROID_RESOURCES, "grantUriPermissions", true);
 			axml_end_element(&m);
 		axml_end_element(&m);
 		axml_begin_element(&m, NULL, "uses-permission");
-			axml_set_string(&m, "android", "name", "android.permission.REQUEST_INSTALL_PACKAGES");
+			axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
 		axml_end_element(&m);
 	axml_end_element(&m);
 
-	axml_end_file(&m);
+	axml_end_file(&m, "mani.bin");
 }
