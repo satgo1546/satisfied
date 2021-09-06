@@ -170,6 +170,9 @@ void arsc_end_string_pool(struct arsc_string_pool *this, FILE *fp) {
 	fseek(fp, start + 4, SEEK_SET);
 	write32(fp, size);
 	fseek(fp, 0, SEEK_END);
+
+	free(this->begin);
+	free(this->styles); // free(NULL) does nothing.
 }
 
 //   \1 = Start Of tag Header
@@ -254,31 +257,33 @@ struct arsc_file {
 	struct arsc_string_pool keys;
 };
 
-const char *const arsc_types[] = {
-	NULL,
+static const char arsc_types[] =
 	// The following types are used in public.xml.
-	"attr", // 0x01
-	"id", // 0x02
-	"style", // 0x03
-	"string", // 0x04
-	"dimen", // 0x05
-	"color", // 0x06
-	"array", // 0x07
-	"drawable", // 0x08
-	"layout", // 0x09
-	"anim", // 0x0a
-	"animator", // 0x0b
-	"interpolator", // 0x0c
-	"mipmap", // 0x0d
-	"integer", // 0x0e
-	"transition", // 0x0f
-	"raw", // 0x10
-	"bool", // 0x11
+	"attr\0" // 0x01
+	"id\0" // 0x02
+	"style\0" // 0x03
+	"string\0" // 0x04
+	"dimen\0" // 0x05
+	"color\0" // 0x06
+	// <array>, <integer-array> and <string-array> are collected under the same type, array.
+	"array\0" // 0x07
+	"drawable\0" // 0x08
+	"layout\0" // 0x09
+	"anim\0" // 0x0a
+	"animator\0" // 0x0b
+	"interpolator\0" // 0x0c
+	"mipmap\0" // 0x0d
+	"integer\0" // 0x0e
+	"transition\0" // 0x0f
+	"raw\0" // 0x10
+	"bool\0" // 0x11
 	// The following types are valid, but there are no predefined resources of these types.
-	"plurals",
-	"menu",
-	"font",
-};
+	"plurals\0"
+	"menu\0"
+	"font\0"
+	// The final \0 must be present.
+	"";
+static const size_t arsc_type_count = 20;
 
 void arsc_begin_file(struct arsc_file *this, const char *package_name) {
 	this->fp = tmpfile();
@@ -306,14 +311,36 @@ void arsc_end_file(struct arsc_file *this, const char *filename) {
 
 	arsc_end_string_pool(&this->string_pool, fp);
 
-	/*write16(fp, 0x0180); // RES_XML_RESOURCE_MAP_TYPE
-	write16(fp, 8); // headerSize
-	write32(fp, this->attr_count * 4 + 8); // size
-	rewind(this->contents);
-	copy_fp(fp, this->contents);*/
+	const long package_start = ftell(fp);
+	write16(fp, 0x0200); // RES_TABLE_PACKAGE_TYPE
+	write16(fp, 284); // headerSize
+	write32(fp, 0); // size (to be calculated)
+	write32(fp, 0x7f); // id
+	for (size_t i = 0; i < 128; i++) write16(fp, this->package_name[i]);
+	write32(fp, 284); // typeStrings
+	write32(fp, 0); // lastPublicType
+	write32(fp, 0); // keyStrings (to be calculated)
+	write32(fp, 0); // lastPublicKey
 
+	arsc_begin_string_pool(&this->string_pool);
+	memcpy(this->string_pool.begin, arsc_types, sizeof(arsc_types));
+	this->string_pool.count = arsc_type_count;
+	arsc_end_string_pool(&this->string_pool, fp);
 	long size = ftell(fp) - start;
+	fseek(fp, start + 276, SEEK_SET);
+	write32(fp, size); // keyStrings
+	fseek(fp, 0, SEEK_END);
+
+	arsc_end_string_pool(&this->keys, fp);
+
+	rewind(this->fp);
+	copy_fp(fp, this->fp);
+
+	size = ftell(fp) - start;
 	fseek(fp, start + 4, SEEK_SET);
+	write32(fp, size);
+	size += start - package_start;
+	fseek(fp, package_start + 4, SEEK_SET);
 	write32(fp, size);
 
 	fclose(fp);
