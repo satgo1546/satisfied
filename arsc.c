@@ -29,6 +29,31 @@ size_t utf8_utf16_length(const char *s) {
 	return r;
 }
 
+// This function does not check for encoding errors and buffer overflow.
+void utf8_to_utf16(uint16_t *dest, const char *src) {
+	uint32_t x;
+	while ((x = (unsigned char) *src++)) {
+		uint32_t n = 0;
+		while (x & (0x80 >> n)) n++;
+		if (n) {
+			// Read the following continuation bytes.
+			x &= 0x7f >> n;
+			while (--n) {
+				x <<= 6;
+				x |= (unsigned char) *src++ & 63;
+			}
+		}
+		if (x & 0xff0000) {
+			// Write a UTF-16 surrogate pair.
+			x -= 0x10000;
+			*dest++ = 0xd800 | (x >> 10);
+			*dest++ = 0xdc00 | (x & 0x3ff);
+		} else {
+			*dest++ = x;
+		}
+	}
+}
+
 // arsc_string_pool implements the ResStringPool chunk in a simple-minded manner.
 // With the storage allocated ahead of time, strings too long are rejected and cause panic.
 // All the strings are null-terminated, laid out sequentially in memory, and encoded in UTF-8.
@@ -223,15 +248,46 @@ size_t arsc_append_styled(struct arsc_string_pool *this, const char *control) {
 
 struct arsc_file {
 	FILE *fp;
+	uint16_t package_name[128];
 	struct arsc_string_pool string_pool;
+	// A string pool has to be used because names are not required to stay unique across different resource types.
+	struct arsc_string_pool keys;
 };
 
-void arsc_begin_file(struct arsc_file *this) {
+const char *const arsc_types[] = {
+	NULL,
+	// The following types are used in public.xml.
+	"attr", // 0x01
+	"id", // 0x02
+	"style", // 0x03
+	"string", // 0x04
+	"dimen", // 0x05
+	"color", // 0x06
+	"array", // 0x07
+	"drawable", // 0x08
+	"layout", // 0x09
+	"anim", // 0x0a
+	"animator", // 0x0b
+	"interpolator", // 0x0c
+	"mipmap", // 0x0d
+	"integer", // 0x0e
+	"transition", // 0x0f
+	"raw", // 0x10
+	"bool", // 0x11
+	// The following types are valid, but there are no predefined resources of these types.
+	"plurals",
+	"menu",
+	"font",
+};
+
+void arsc_begin_file(struct arsc_file *this, const char *package_name) {
 	this->fp = tmpfile();
 	if (!this->fp) {
 		perror("tmpfile");
 		exit(EXIT_FAILURE);
 	}
+	memset(this->package_name, 0, sizeof(this->package_name));
+	utf8_to_utf16(this->package_name, package_name);
 	arsc_begin_string_pool(&this->string_pool);
 }
 
@@ -496,4 +552,8 @@ int main(int argc, char **argv) {
 	axml_end_element(&m);
 
 	axml_end_file(&m, "mani.bin");
+
+	struct arsc_file r;
+	arsc_begin_file(&r, "net.hanshq.hello");
+	arsc_end_file(&r, "rc.arsc");
 }
