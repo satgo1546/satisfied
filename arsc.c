@@ -257,33 +257,43 @@ struct arsc_file {
 	struct arsc_string_pool keys;
 };
 
-static const char arsc_types[] =
-	// The following types are used in public.xml.
-	"attr\0" // 0x01
-	"id\0" // 0x02
-	"style\0" // 0x03
-	"string\0" // 0x04
-	"dimen\0" // 0x05
-	"color\0" // 0x06
+#define arsc_type_count 20
+static_assert(arsc_type_count < 57, "arsc_type_count");
+static const unsigned char arsc_types[284] = {
+	0x01, 0x00, // RES_STRING_POOL_TYPE
+	28, 0, // headerSize
+	sizeof(arsc_types) & 0xff, sizeof(arsc_types) >> 8, // size
+	[8] = arsc_type_count, // stringCount
+	[16] = 0, 1, // UTF8_FLAG
+	#define stringsStart (28 + arsc_type_count * 4)
+	[20] = stringsStart, // stringsStart
+
+	// The following types, except <plurals>, <menu> and <font>, are used in public.xml.
 	// <array>, <integer-array> and <string-array> are collected under the same type, array.
-	"array\0" // 0x07
-	"drawable\0" // 0x08
-	"layout\0" // 0x09
-	"anim\0" // 0x0a
-	"animator\0" // 0x0b
-	"interpolator\0" // 0x0c
-	"mipmap\0" // 0x0d
-	"integer\0" // 0x0e
-	"transition\0" // 0x0f
-	"raw\0" // 0x10
-	"bool\0" // 0x11
-	// The following types are valid, but there are no predefined resources of these types.
-	"plurals\0"
-	"menu\0"
-	"font\0"
-	// The final \0 must be present.
-	"";
-static const size_t arsc_type_count = 20;
+	[28 + 0 * 4] = 0, [stringsStart + 0] = 4, 4, 'a', 't', 't', 'r', 0, // 0x01
+	[28 + 1 * 4] = 7, [stringsStart + 7] = 2, 2, 'i', 'd', 0, // 0x02
+	[28 + 2 * 4] = 12, [stringsStart + 12] = 5, 5, 's', 't', 'y', 'l', 'e', 0, // 0x03
+	[28 + 3 * 4] = 20, [stringsStart + 20] = 6, 6, 's', 't', 'r', 'i', 'n', 'g', 0, // 0x04
+	[28 + 4 * 4] = 29, [stringsStart + 29] = 5, 5, 'd', 'i', 'm', 'e', 'n', 0, // 0x05
+	[28 + 5 * 4] = 37, [stringsStart + 37] = 5, 5, 'c', 'o', 'l', 'o', 'r', 0, // 0x06
+	[28 + 6 * 4] = 45, [stringsStart + 45] = 5, 5, 'a', 'r', 'r', 'a', 'y', 0, // 0x07
+	[28 + 7 * 4] = 53, [stringsStart + 53] = 8, 8, 'd', 'r', 'a', 'w', 'a', 'b', 'l', 'e', 0, // 0x08
+	[28 + 8 * 4] = 64, [stringsStart + 64] = 6, 6, 'l', 'a', 'y', 'o', 'u', 't', 0, // 0x09
+	[28 + 9 * 4] = 73, [stringsStart + 73] = 4, 4, 'a', 'n', 'i', 'm', 0, // 0x0a
+	[28 + 10 * 4] = 80, [stringsStart + 80] = 8, 8, 'a', 'n', 'i', 'm', 'a', 't', 'o', 'r', 0, // 0x0b
+	[28 + 11 * 4] = 91, [stringsStart + 91] = 12, 12, 'i', 'n', 't', 'e', 'r', 'p', 'o', 'l', 'a', 't', 'o', 'r', 0, // 0x0c
+	[28 + 12 * 4] = 106, [stringsStart + 106] = 6, 6, 'm', 'i', 'p', 'm', 'a', 'p', 0, // 0x0d
+	[28 + 13 * 4] = 115, [stringsStart + 115] = 7, 7, 'i', 'n', 't', 'e', 'g', 'e', 'r', 0, // 0x0e
+	[28 + 14 * 4] = 125, [stringsStart + 125] = 10, 10, 't', 'r', 'a', 'n', 's', 'i', 't', 'i', 'o', 'n', 0, // 0x0f
+	[28 + 15 * 4] = 138, [stringsStart + 138] = 3, 3, 'r', 'a', 'w', 0, // 0x10
+	[28 + 16 * 4] = 144, [stringsStart + 144] = 4, 4, 'b', 'o', 'o', 'l', 0, // 0x11
+	[28 + 17 * 4] = 151, [stringsStart + 151] = 7, 7, 'p', 'l', 'u', 'r', 'a', 'l', 's', 0, // 0x12
+	[28 + 18 * 4] = 161, [stringsStart + 161] = 4, 4, 'm', 'e', 'n', 'u', 0, // 0x13
+	[28 + 19 * 4] = 168, [stringsStart + 168] = 4, 4, 'f', 'o', 'n', 't', 0, // 0x14
+	#undef stringsStart
+};
+static_assert(sizeof(arsc_types) < 0x10000, "arsc_types");
+static_assert(sizeof(arsc_types) % 4 == 0, "arsc_types");
 
 void arsc_begin_file(struct arsc_file *this, const char *package_name) {
 	this->fp = tmpfile();
@@ -294,6 +304,7 @@ void arsc_begin_file(struct arsc_file *this, const char *package_name) {
 	memset(this->package_name, 0, sizeof(this->package_name));
 	utf8_to_utf16(this->package_name, package_name);
 	arsc_begin_string_pool(&this->string_pool);
+	arsc_begin_string_pool(&this->keys);
 }
 
 void arsc_end_file(struct arsc_file *this, const char *filename) {
@@ -318,25 +329,17 @@ void arsc_end_file(struct arsc_file *this, const char *filename) {
 	write32(fp, 0x7f); // id
 	for (size_t i = 0; i < 128; i++) write16(fp, this->package_name[i]);
 	write32(fp, 284); // typeStrings
-	write32(fp, 0); // lastPublicType
-	write32(fp, 0); // keyStrings (to be calculated)
-	write32(fp, 0); // lastPublicKey
+	write32(fp, arsc_type_count); // lastPublicType
+	write32(fp, 284 + sizeof(arsc_types)); // keyStrings
+	write32(fp, this->keys.count); // lastPublicKey
 
-	arsc_begin_string_pool(&this->string_pool);
-	memcpy(this->string_pool.begin, arsc_types, sizeof(arsc_types));
-	this->string_pool.count = arsc_type_count;
-	arsc_end_string_pool(&this->string_pool, fp);
-	long size = ftell(fp) - start;
-	fseek(fp, start + 276, SEEK_SET);
-	write32(fp, size); // keyStrings
-	fseek(fp, 0, SEEK_END);
-
+	fwrite(arsc_types, 1, sizeof(arsc_types), fp);
 	arsc_end_string_pool(&this->keys, fp);
 
 	rewind(this->fp);
 	copy_fp(fp, this->fp);
 
-	size = ftell(fp) - start;
+	long size = ftell(fp) - start;
 	fseek(fp, start + 4, SEEK_SET);
 	write32(fp, size);
 	size += start - package_start;
