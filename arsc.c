@@ -369,7 +369,16 @@ void arsc_begin_type(struct arsc_file *this, uint8_t type, size_t entry_count) {
 void arsc_end_type(struct arsc_file *this) {
 }
 
-void arsc_begin_configuration(struct arsc_file *this, const char *bcp47) {
+
+void arsc_begin_configuration(struct arsc_file *this,
+	uint16_t mcc, uint16_t mnc,
+	const char *bcp47,
+	uint16_t screen_layout,
+	uint16_t smallest_width, uint16_t width, uint16_t height, uint8_t color,
+	uint8_t orientation, uint8_t ui_mode, uint16_t density, uint8_t touchscreen,
+	uint8_t keyboard, uint8_t navigation, uint8_t input_flags,
+	uint16_t sdk
+) {
 	write16(this->fp, 0x0201); // RES_TABLE_TYPE_TYPE
 	write16(this->fp, 20 + 56); // headerSize
 	write32(this->fp, 0); // size (to be calculated)
@@ -381,23 +390,28 @@ void arsc_begin_configuration(struct arsc_file *this, const char *bcp47) {
 	// https://developer.android.com/guide/topics/resources/providing-resources
 	// https://android.googlesource.com/platform/frameworks/base.git/+/master/tools/aapt/AaptConfig.cpp
 	write32(this->fp, 56); // size
-	write16(this->fp, 0); // mcc (mobile country code (from SIM))
-	write16(this->fp, 0); // mnc (mobile network code (from SIM))
+	write16(this->fp, mcc); // mcc (mobile country code (from SIM))
+	write16(this->fp, mnc); // mnc (mobile network code (from SIM))
 
 	// The following logic is mostly copied from AaptLocaleValue::initFromDirName, to which no significant changes have been made since 2014.
-	char locale_script[4] = {0}, locale_variant[8] = {0};
+	char locale_script[4] = {0}, locale_variant[8] = {0}, locale_numbering_system[8] = {0};
 	if (bcp47 && *bcp47) {
 		// Partition bcp47 at '-' like strtok.
 		char language[strlen(bcp47) + 1];
 		strcpy(language, bcp47);
-		char *subtags[4] = {language};
+		char *subtags[6] = {language};
 		size_t subtag_count = 1;
 		for (char *p = language; (p = strchr(p, '-')); *p++ = 0) {
-			if (subtag_count >= 4) {
+			if (subtag_count >= 6) {
 				fprintf(stderr, "%s: BCP 47 tag with too many parts (%s)\n", __func__, bcp47);
 				exit(EXIT_FAILURE);
 			}
 			subtags[subtag_count++] = p + 1;
+		}
+		// https://github.com/unicode-org/cldr/blob/master/common/bcp47/number.xml
+		if (strcmp(subtags[subtag_count - 2], "nu") == 0) {
+			strcpy(locale_numbering_system, subtags[subtag_count - 1]);
+			subtag_count -= 2;
 		}
 		// The language is always the first subtag.
 		if (subtags[0][2]) {
@@ -412,6 +426,10 @@ void arsc_begin_configuration(struct arsc_file *this, const char *bcp47) {
 			write8(this->fp, tolower(subtags[0][1])); // language[1]
 		}
 
+		// Rearrange other information so that
+		//   subtags[1] = script
+		//   subtags[2] = region
+		//   subtags[3] = variant
 		if (subtag_count == 2) {
 			// The second tag can either be a region, a variant or a script.
 			switch (strlen(subtags[1])) {
@@ -471,7 +489,30 @@ void arsc_begin_configuration(struct arsc_file *this, const char *bcp47) {
 	} else {
 		write32(this->fp, 0); // language, country
 	}
-	printf("script = %.4s; variant = %.8s\n", locale_script, locale_variant);
+
+	write8(this->fp, orientation); // orientation
+	write8(this->fp, touchscreen); // touchscreen
+	write16(this->fp, density); // density
+	if (density == 0xfffe) if (sdk < 21) sdk = 21;
+	write8(this->fp, keyboard); // keyboard
+	write8(this->fp, navigation); // navigation
+	write16(this->fp, input_flags); // inputFlags, inputPad0
+	write32(this->fp, 0); // screenWidth, screenHeight
+	write32(this->fp, sdk); // sdkVersion, minorVersion
+	write8(this->fp, screen_layout); // screenLayout
+	write8(this->fp, ui_mode); // uiMode
+	write16(this->fp, smallest_width); // smallestScreenWidthDp
+	write16(this->fp, width); // screenWidthDp
+	write16(this->fp, height); // screenHeightDp
+	fwrite(locale_script, 1, 4, this->fp); // localeScript
+	fwrite(locale_variant, 1, 8, this->fp); // localeVariant
+	write8(this->fp, screen_layout >> 8); // screenLayout2
+	write8(this->fp, color); // colorMode
+	write16(this->fp, 0); // screenConfigPad2
+	// This bool field accounts for 4 bytes due to structure padding.
+	write32(this->fp, false); // localeScriptWasComputed
+	// I'm not sure where the following member is exactly placed, so I suppress it for now. It's added in Android Pie.
+	0 && fwrite(locale_numbering_system, 1, 8, this->fp); // localeNumberingSystem
 }
 
 void arsc_end_configuration(struct arsc_file *this) {
@@ -729,29 +770,9 @@ int main(int argc, char **argv) {
 	arsc_begin_file(&r, "net.hanshq.hello");
 
 	arsc_begin_type(&r, 0x12, 1);
-		arsc_begin_configuration(&r, "de");
+		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "fil");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "zh-Hant");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "cmn-Hans-CN");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "yue-HK");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "sl-rozaj");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "de-CH-1901");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "sl-IT-nedis");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "hy-Latn-IT-arevela");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "zh-CN");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "es-419");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, "qaa-Qaaa-QM");
+		arsc_begin_configuration(&r, 0, 0, "zh-Hans", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		arsc_end_configuration(&r);
 	arsc_end_type(&r);
 
