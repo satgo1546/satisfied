@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "bits.c"
 
@@ -255,6 +256,8 @@ struct arsc_file {
 	struct arsc_string_pool string_pool;
 	// A string pool has to be used because names are not required to stay unique across different resource types.
 	struct arsc_string_pool keys;
+	uint8_t spec_type_id;
+	size_t spec_entry_count;
 };
 
 #define arsc_type_count 20
@@ -350,6 +353,144 @@ void arsc_end_file(struct arsc_file *this, const char *filename) {
 	fclose(this->fp);
 }
 
+void arsc_begin_type(struct arsc_file *this, uint8_t type, size_t entry_count) {
+	// Type IDs start	at 1; 0 is invalid.
+	assert(type && type <= arsc_type_count);
+	write16(this->fp, 0x0202); // RES_TABLE_TYPE_SPEC_TYPE
+	write16(this->fp, 16); // headerSize
+	write32(this->fp, entry_count * 4 + 16); // size
+	write32(this->fp, type); // id, res0, res1
+	write32(this->fp, entry_count); // entryCount
+	for (size_t i = 0; i < entry_count; i++) write32(this->fp, 0);
+	this->spec_type_id = type;
+	this->spec_entry_count = entry_count;
+}
+
+void arsc_end_type(struct arsc_file *this) {
+}
+
+void arsc_begin_configuration(struct arsc_file *this, const char *bcp47) {
+	write16(this->fp, 0x0201); // RES_TABLE_TYPE_TYPE
+	write16(this->fp, 20 + 56); // headerSize
+	write32(this->fp, 0); // size (to be calculated)
+
+	write32(this->fp, this->spec_type_id); // id, res0, res1
+	write32(this->fp, this->spec_entry_count); // entryCount
+	write32(this->fp, this->spec_entry_count * 4 + 20 + 56); // entriesStart
+	// sizeof(ResTable_config) has once changed in 2014, but has remained constant since then.
+	// https://developer.android.com/guide/topics/resources/providing-resources
+	// https://android.googlesource.com/platform/frameworks/base.git/+/master/tools/aapt/AaptConfig.cpp
+	write32(this->fp, 56); // size
+	write16(this->fp, 0); // mcc (mobile country code (from SIM))
+	write16(this->fp, 0); // mnc (mobile network code (from SIM))
+
+	// The following logic is mostly copied from AaptLocaleValue::initFromDirName, to which no significant changes have been made since 2014.
+	char locale_script[4] = {0}, locale_variant[8] = {0};
+	if (bcp47 && *bcp47) {
+		// Partition bcp47 at '-' like strtok.
+		char language[strlen(bcp47) + 1];
+		strcpy(language, bcp47);
+		char *subtags[4] = {language};
+		size_t subtag_count = 1;
+		for (char *p = language; (p = strchr(p, '-')); *p++ = 0) {
+			if (subtag_count >= 4) {
+				fprintf(stderr, "%s: BCP 47 tag with too many parts (%s)\n", __func__, bcp47);
+				exit(EXIT_FAILURE);
+			}
+			subtags[subtag_count++] = p + 1;
+		}
+		// The language is always the first subtag.
+		if (subtags[0][2]) {
+			write16be(this->fp,
+				0x8000 | ((subtags[0][0] & 0x1f) - 1)
+				| (((subtags[0][1] & 0x1f) - 1) << 5)
+				| (((subtags[0][2] & 0x1f) - 1) << 10)
+			); // language
+		} else {
+			assert(subtags[0][1]);
+			write8(this->fp, tolower(subtags[0][0])); // language[0]
+			write8(this->fp, tolower(subtags[0][1])); // language[1]
+		}
+
+		if (subtag_count == 2) {
+			// The second tag can either be a region, a variant or a script.
+			switch (strlen(subtags[1])) {
+			case 2:
+			case 3:
+				subtags[2] = subtags[1];
+				subtags[1] = NULL;
+				break;
+			case 4:
+				if (isalpha(subtags[1][0]) && isalpha(subtags[1][1])
+					&& isalpha(subtags[1][2]) && isalpha(subtags[1][3])) break;
+				// This is not alphabetical, so we fall through to variant.
+			case 5:
+			case 6:
+			case 7:
+			case 8:
+				subtags[3] = subtags[1];
+				subtags[1] = NULL;
+				break;
+			default:
+				fprintf(stderr, "%s: invalid BCP 47 tag %s\n", __func__, bcp47);
+				exit(EXIT_FAILURE);
+			}
+		} else if (subtag_count == 3) {
+			// The third tag can either be a region code (if the second tag was a script), else a variant code.
+			if (strlen(subtags[2]) >= 4) {
+				subtags[3] = subtags[2];
+				subtags[2] = NULL;
+				// The second subtag can either be a script or a region code.
+				// If its size is 4, it's a script code, else it's a region code.
+				if (strlen(subtags[1]) != 4) {
+					subtags[2] = subtags[1];
+					subtags[1] = NULL;
+				}
+			}
+		}
+		if (!subtags[2]) {
+			write16(this->fp, 0); // country
+		} else if (subtags[2][2]) {
+			assert(isdigit(subtags[2][0]) && isdigit(subtags[2][1]) && isdigit(subtags[2][2]));
+			write16be(this->fp,
+				0x8000 | (subtags[2][0] & 0x0f)
+				| ((subtags[2][1] & 0x0f) << 5) | ((subtags[2][2] & 0x0f) << 10)
+			); // country
+		} else {
+			assert(subtags[2][1]);
+			write8(this->fp, toupper(subtags[2][0])); // country[0]
+			write8(this->fp, toupper(subtags[2][1])); // country[1]
+		}
+		if (subtags[1]) {
+			locale_script[0] = toupper(subtags[1][0]);
+			locale_script[1] = tolower(subtags[1][1]);
+			locale_script[2] = tolower(subtags[1][2]);
+			locale_script[3] = tolower(subtags[1][3]);
+		}
+		if (subtags[3]) strncpy(locale_variant, subtags[3], 8);
+	} else {
+		write32(this->fp, 0); // language, country
+	}
+	printf("script = %.4s; variant = %.8s\n", locale_script, locale_variant);
+}
+
+void arsc_end_configuration(struct arsc_file *this) {
+}
+
+// Simple entry
+void arsc_entry(struct arsc_file *this) {
+}
+
+// Complex entry
+void arsc_begin_entry(struct arsc_file *this) {
+}
+
+void arsc_end_entry(struct arsc_file *this) {
+}
+
+void arsc_set_string(struct arsc_file *this) {
+}
+
 
 
 struct axml_file {
@@ -372,6 +513,7 @@ void axml_begin_file(struct axml_file *this) {
 		perror("tmpfile");
 		exit(EXIT_FAILURE);
 	}
+	// The resource map is not optional at all because some read attributes by ID and some by name.
 	// The first empty entry in a string pool is mandatory in this implementation.
 	// Its attribute ID is set arbitrarily as long as there is no conflict.
 	this->attr_count = 1;
@@ -585,5 +727,33 @@ int main(int argc, char **argv) {
 
 	struct arsc_file r;
 	arsc_begin_file(&r, "net.hanshq.hello");
+
+	arsc_begin_type(&r, 0x12, 1);
+		arsc_begin_configuration(&r, "de");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "fil");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "zh-Hant");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "cmn-Hans-CN");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "yue-HK");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "sl-rozaj");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "de-CH-1901");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "sl-IT-nedis");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "hy-Latn-IT-arevela");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "zh-CN");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "es-419");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, "qaa-Qaaa-QM");
+		arsc_end_configuration(&r);
+	arsc_end_type(&r);
+
 	arsc_end_file(&r, "rc.arsc");
 }

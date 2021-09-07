@@ -13,7 +13,12 @@ void write8(FILE *f, uint8_t value) {
 
 void write16(FILE *f, uint16_t x) {
 	write8(f, x & 0xff);
-	write8(f, (x >> 8) & 0xff);
+	write8(f, x >> 8);
+}
+
+void write16be(FILE *f, uint16_t x) {
+	write8(f, x >> 8);
+	write8(f, x & 0xff);
 }
 
 void write32(FILE *f, uint32_t x) {
