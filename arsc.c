@@ -529,6 +529,11 @@ void arsc_begin_configuration(struct arsc_file *this,
 void arsc_end_configuration(struct arsc_file *this) {
 	assert(this->config_start);
 	long size = ftell(this->fp) - this->config_start + 20;
+	if ((size_t) size == this->spec_entry_count * 4 + 20 + 56) {
+		// The Android platform dislikes configurations with no entries, saying “ResTable_type entriesStart at 0x… extends beyond chunk end 0x….”
+		// Setting entriesStart to 0 in this case would result in [INSTALL_PARSE_FAILED_NOT_APK: Failed to parse ….apk] on one of my devices.
+		write32(this->fp, 0);
+	}
 	fseek(this->fp, this->config_start - 16, SEEK_SET);
 	write32(this->fp, size); // size
 	fseek(this->fp, 0, SEEK_END);
@@ -839,7 +844,7 @@ int main(int argc, char **argv) {
 		axml_end_element(&m);
 	axml_end_element(&m);
 
-	axml_end_file(&m, "mani.bin");
+	axml_end_file(&m, "AndroidManifest.xml");
 
 	struct arsc_file r;
 	arsc_begin_file(&r, "net.hanshq.hello");
@@ -849,9 +854,9 @@ int main(int argc, char **argv) {
 			arsc_entry(&r, 0);
 			arsc_set_string(&r, "icon", "res/drawable/icon.png");
 		arsc_end_configuration(&r);
-		//arsc_begin_configuration(&r, 0, 0, "zh-Hans", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-		//arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, 0, 0, "zh-Hans", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		arsc_end_configuration(&r);
 	arsc_end_type(&r);
 
-	arsc_end_file(&r, "rc.arsc");
+	arsc_end_file(&r, "resources.arsc");
 }
