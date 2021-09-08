@@ -528,12 +528,12 @@ void arsc_begin_configuration(struct arsc_file *this,
 
 void arsc_end_configuration(struct arsc_file *this) {
 	assert(this->config_start);
-	long size = ftell(this->fp) - this->config_start + 20;
-	if ((size_t) size == this->spec_entry_count * 4 + 20 + 56) {
+	if ((size_t) ftell(this->fp) == this->config_start + this->spec_entry_count * 4 + 56) {
 		// The Android platform dislikes configurations with no entries, saying “ResTable_type entriesStart at 0x… extends beyond chunk end 0x….”
 		// Setting entriesStart to 0 in this case would result in [INSTALL_PARSE_FAILED_NOT_APK: Failed to parse ….apk] on one of my devices.
 		write32(this->fp, 0);
 	}
+	long size = ftell(this->fp) - this->config_start + 20;
 	fseek(this->fp, this->config_start - 16, SEEK_SET);
 	write32(this->fp, size); // size
 	fseek(this->fp, 0, SEEK_END);
@@ -572,7 +572,7 @@ void arsc_begin_entry(struct arsc_file *this, size_t index, const char *name) {
 
 void arsc_end_entry(struct arsc_file *this) {
 	assert(this->config_start);
-	fseek(this->fp, -(long) this->current_array_size * 16 - 4, SEEK_CUR);
+	fseek(this->fp, -(long) this->current_array_size * 12 - 4, SEEK_CUR);
 	write32(this->fp, this->current_array_size); // count
 	fseek(this->fp, 0, SEEK_END);
 	this->current_array_size = SIZE_MAX;
@@ -608,8 +608,12 @@ write_data:
 	write32(this->fp, data); // data
 }
 
+void arsc_set_int32(struct arsc_file *this, const char *name, int32_t value) {
+	arsc_set_data(this, name, 0x10, value); // TYPE_INT_DEC
+}
+
 void arsc_set_string(struct arsc_file *this, const char *name, const char *value) {
-	arsc_set_data(this, name, 0x03, arsc_intern(&this->string_pool, value));
+	arsc_set_data(this, name, 0x03, arsc_intern(&this->string_pool, value)); // TYPE_STRING
 }
 
 
@@ -849,12 +853,42 @@ int main(int argc, char **argv) {
 	struct arsc_file r;
 	arsc_begin_file(&r, "net.hanshq.hello");
 
-	arsc_begin_type(&r, 0x08, 1);
+	arsc_begin_type(&r, 0x04, 1); // string
+		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			arsc_entry(&r, 0);
+			arsc_set_string(&r, "abd", "Grass.");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, 0, 0, "zh-CN", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			arsc_entry(&r, 0);
+			arsc_set_string(&r, "abd", "草。");
+		arsc_end_configuration(&r);
+		arsc_begin_configuration(&r, 0, 0, "ja-JP", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			arsc_entry(&r, 0);
+			arsc_set_string(&r, "abd", "くさ。");
+		arsc_end_configuration(&r);
+	arsc_end_type(&r);
+	arsc_begin_type(&r, 0x07, 1); // array
+		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			arsc_begin_entry(&r, 0, "abe");
+				arsc_set_int32(&r, NULL, 114);
+				arsc_set_int32(&r, NULL, 514);
+				arsc_set_int32(&r, NULL, -1919);
+				arsc_set_int32(&r, NULL, 810);
+			arsc_end_entry(&r);
+		arsc_end_configuration(&r);
+	arsc_end_type(&r);
+	arsc_begin_type(&r, 0x08, 1); // drawable
 		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 			arsc_entry(&r, 0);
 			arsc_set_string(&r, "icon", "res/drawable/icon.png");
 		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, 0, 0, "zh-Hans", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	arsc_end_type(&r);
+	arsc_begin_type(&r, 0x12, 1); // plurals
+		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			arsc_begin_entry(&r, 0, "pp");
+				arsc_set_string(&r, "one", "one's string");
+				arsc_set_string(&r, "other", "other's string");
+			arsc_end_entry(&r);
 		arsc_end_configuration(&r);
 	arsc_end_type(&r);
 
