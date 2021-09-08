@@ -258,6 +258,8 @@ struct arsc_file {
 	struct arsc_string_pool keys;
 	uint8_t spec_type_id;
 	size_t spec_entry_count;
+	size_t current_array_size;
+	long config_start;
 };
 
 #define arsc_type_count 20
@@ -308,6 +310,8 @@ void arsc_begin_file(struct arsc_file *this, const char *package_name) {
 	utf8_to_utf16(this->package_name, package_name);
 	arsc_begin_string_pool(&this->string_pool);
 	arsc_begin_string_pool(&this->keys);
+	this->current_array_size = SIZE_MAX;
+	this->config_start = 0;
 }
 
 void arsc_end_file(struct arsc_file *this, const char *filename) {
@@ -379,6 +383,8 @@ void arsc_begin_configuration(struct arsc_file *this,
 	uint8_t keyboard, uint8_t navigation, uint8_t input_flags,
 	uint16_t sdk
 ) {
+	assert(!this->config_start);
+
 	write16(this->fp, 0x0201); // RES_TABLE_TYPE_TYPE
 	write16(this->fp, 20 + 56); // headerSize
 	write32(this->fp, 0); // size (to be calculated)
@@ -386,9 +392,11 @@ void arsc_begin_configuration(struct arsc_file *this,
 	write32(this->fp, this->spec_type_id); // id, res0, res1
 	write32(this->fp, this->spec_entry_count); // entryCount
 	write32(this->fp, this->spec_entry_count * 4 + 20 + 56); // entriesStart
+
 	// sizeof(ResTable_config) has once changed in 2014, but has remained constant since then.
 	// https://developer.android.com/guide/topics/resources/providing-resources
 	// https://android.googlesource.com/platform/frameworks/base.git/+/master/tools/aapt/AaptConfig.cpp
+	this->config_start = ftell(this->fp);
 	write32(this->fp, 56); // size
 	write16(this->fp, mcc); // mcc (mobile country code (from SIM))
 	write16(this->fp, mnc); // mnc (mobile network code (from SIM))
@@ -426,7 +434,7 @@ void arsc_begin_configuration(struct arsc_file *this,
 			write8(this->fp, tolower(subtags[0][1])); // language[1]
 		}
 
-		// Rearrange other information so that
+		// Rearrange the other information so that
 		//   subtags[1] = script
 		//   subtags[2] = region
 		//   subtags[3] = variant
@@ -513,23 +521,90 @@ void arsc_begin_configuration(struct arsc_file *this,
 	write32(this->fp, false); // localeScriptWasComputed
 	// I'm not sure where the following member is exactly placed, so I suppress it for now. It's added in Android Pie.
 	0 && fwrite(locale_numbering_system, 1, 8, this->fp); // localeNumberingSystem
+	assert(ftell(this->fp) - this->config_start == 56);
+
+	for (size_t i = 0; i < this->spec_entry_count; i++) write32(this->fp, -1);
 }
 
 void arsc_end_configuration(struct arsc_file *this) {
+	assert(this->config_start);
+	long size = ftell(this->fp) - this->config_start + 20;
+	fseek(this->fp, this->config_start - 16, SEEK_SET);
+	write32(this->fp, size); // size
+	fseek(this->fp, 0, SEEK_END);
+	this->config_start = 0;
+}
+
+static void arsc_index_entry(struct arsc_file *this, size_t index) {
+	assert(this->config_start);
+	assert(index < this->spec_entry_count);
+	const long offset = ftell(this->fp) - this->spec_entry_count * 4 - this->config_start - 56;
+	fseek(this->fp, this->config_start + index * 4 + 56, SEEK_SET);
+	write32(this->fp, offset);
+	fseek(this->fp, 0, SEEK_END);
 }
 
 // Simple entry
-void arsc_entry(struct arsc_file *this) {
+void arsc_entry(struct arsc_file *this, size_t index) {
+	arsc_index_entry(this, index);
+	// ResTable_entry
+	write16(this->fp, 8); // size
+	write16(this->fp, 0); // flags
+	this->current_array_size = SIZE_MAX;
 }
 
 // Complex entry
-void arsc_begin_entry(struct arsc_file *this) {
+void arsc_begin_entry(struct arsc_file *this, size_t index, const char *name) {
+	arsc_index_entry(this, index);
+	// ResTable_map_entry : public ResTable_entry
+	write16(this->fp, 16); // size
+	write16(this->fp, 0x0001); // FLAG_COMPLEX
+	write32(this->fp, arsc_intern(&this->keys, name)); // key
+	write32(this->fp, 0); // parent
+	write32(this->fp, 0); // count (to be filled in)
+	this->current_array_size = 0;
 }
 
 void arsc_end_entry(struct arsc_file *this) {
+	assert(this->config_start);
+	fseek(this->fp, -(long) this->current_array_size * 16 - 4, SEEK_CUR);
+	write32(this->fp, this->current_array_size); // count
+	fseek(this->fp, 0, SEEK_END);
+	this->current_array_size = SIZE_MAX;
 }
 
-void arsc_set_string(struct arsc_file *this) {
+void arsc_set_data(struct arsc_file *this, const char *name, uint8_t type, uint32_t data) {
+	if (this->current_array_size == SIZE_MAX) {
+		write32(this->fp, arsc_intern(&this->keys, name)); // key in ResTable_entry
+	} else {
+		this->current_array_size++;
+		if (name) {
+			static const char names[][6] = {
+				"type", "min", "max", "l10n",
+				"other", "zero", "one", "two", "few", "many",
+			};
+			for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+				if (strcmp(names[i], name) == 0) {
+					write32(this->fp, 0x01000000 | i); // name in ResTable_map
+					goto write_data;
+				}
+			}
+			// I don't know which pool, if any, the name field in ResTable_map refers to.
+			abort();
+		} else {
+			write32(this->fp, 0x02000000 | this->current_array_size - 1); // name in ResTable_map
+		}
+	}
+write_data:
+	// Res_value
+	write16(this->fp, 8); // size
+	write8(this->fp, 0); // res0
+	write8(this->fp, type); // dataType
+	write32(this->fp, data); // data
+}
+
+void arsc_set_string(struct arsc_file *this, const char *name, const char *value) {
+	arsc_set_data(this, name, 0x03, arsc_intern(&this->string_pool, value));
 }
 
 
@@ -739,7 +814,7 @@ int main(int argc, char **argv) {
 		axml_end_element(&m);
 		axml_begin_element(&m, NULL, "application");
 			axml_set_string(&m, ANDROID_RESOURCES, "label", "我的第一个 Java 应用程序");
-			axml_set_reference(&m, ANDROID_RESOURCES, "icon", 0x7f020000);
+			axml_set_reference(&m, ANDROID_RESOURCES, "icon", 0x7f080000);
 			axml_begin_element(&m, NULL, "activity");
 				axml_set_string(&m, ANDROID_RESOURCES, "name", ".MainActivity");
 				axml_set_bool(&m, ANDROID_RESOURCES, "exported", true);
@@ -769,11 +844,13 @@ int main(int argc, char **argv) {
 	struct arsc_file r;
 	arsc_begin_file(&r, "net.hanshq.hello");
 
-	arsc_begin_type(&r, 0x12, 1);
+	arsc_begin_type(&r, 0x08, 1);
 		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+			arsc_entry(&r, 0);
+			arsc_set_string(&r, "icon", "res/drawable/icon.png");
 		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, 0, 0, "zh-Hans", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-		arsc_end_configuration(&r);
+		//arsc_begin_configuration(&r, 0, 0, "zh-Hans", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		//arsc_end_configuration(&r);
 	arsc_end_type(&r);
 
 	arsc_end_file(&r, "rc.arsc");
