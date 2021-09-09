@@ -627,7 +627,7 @@ void arsc_set_string(struct arsc_file *this, const char *name, const char *value
 
 
 struct axml_file {
-	FILE *contents;
+	FILE *fp;
 	size_t attr_count;
 	bool inside_header;
 	struct arsc_string_pool string_pool;
@@ -641,8 +641,8 @@ struct axml_file {
 };
 
 void axml_begin_file(struct axml_file *this) {
-	this->contents = tmpfile();
-	if (!this->contents) {
+	this->fp = tmpfile();
+	if (!this->fp) {
 		perror("tmpfile");
 		exit(EXIT_FAILURE);
 	}
@@ -653,7 +653,7 @@ void axml_begin_file(struct axml_file *this) {
 	arsc_begin_string_pool(&this->string_pool);
 	this->inside_header = true;
 	this->stack_top = 0;
-	write32(this->contents, 0x0101fffe);
+	write32(this->fp, 0x0101fffe);
 }
 
 static void axml_end_header(struct axml_file *this) {
@@ -678,14 +678,14 @@ void axml_end_file_fp(struct axml_file *this, FILE *fp) {
 	write16(fp, 0x0180); // RES_XML_RESOURCE_MAP_TYPE
 	write16(fp, 8); // headerSize
 	write32(fp, this->attr_count * 4 + 8); // size
-	rewind(this->contents);
-	copy_file_fp(fp, this->contents);
+	rewind(this->fp);
+	copy_file_fp(fp, this->fp);
 
 	long size = ftell(fp) - start;
 	fseek(fp, start + 4, SEEK_SET);
 	write32(fp, size);
 
-	fclose(this->contents);
+	fclose(this->fp);
 }
 
 void axml_end_file(struct axml_file *this, const char *filename) {
@@ -701,7 +701,7 @@ void axml_end_file(struct axml_file *this, const char *filename) {
 void axml_define_attr(struct axml_file *this, uint32_t id, const char *name) {
 	assert(this->inside_header);
 	assert(name && *name);
-	write32(this->contents, id);
+	write32(this->fp, id);
 	arsc_intern(&this->string_pool, name);
 	this->attr_count++;
 	assert(this->string_pool.count == this->attr_count);
@@ -711,48 +711,48 @@ void axml_end_begin_element(struct axml_file *this) {
 	if (!this->stack_top) return;
 	size_t n = this->stack[this->stack_top - 1].attribute_count;
 	if (!n) return;
-	fseek(this->contents, this->stack[this->stack_top - 1].pos + 4, SEEK_SET);
-	write32(this->contents, n * 20 + 36);
-	fseek(this->contents, this->stack[this->stack_top - 1].pos + 28, SEEK_SET);
-	write16(this->contents, n);
-	fseek(this->contents, 0, SEEK_END);
+	fseek(this->fp, this->stack[this->stack_top - 1].pos + 4, SEEK_SET);
+	write32(this->fp, n * 20 + 36);
+	fseek(this->fp, this->stack[this->stack_top - 1].pos + 28, SEEK_SET);
+	write16(this->fp, n);
+	fseek(this->fp, 0, SEEK_END);
 }
 
 void axml_begin_element(struct axml_file *this, const char *ns, const char *name) {
 	axml_end_header(this);
 	axml_end_begin_element(this);
 	if (this->stack_top >= 16) fprintf(stderr, "%s\n", __func__), exit(EXIT_FAILURE);
-	this->stack[this->stack_top].pos = ftell(this->contents);
+	this->stack[this->stack_top].pos = ftell(this->fp);
 	this->stack[this->stack_top].ns = arsc_intern(&this->string_pool, ns);
 	this->stack[this->stack_top].name = arsc_intern(&this->string_pool, name);
 	this->stack[this->stack_top].attribute_count = 0;
 	this->stack_top++;
-	write16(this->contents, 0x0102); // RES_XML_START_ELEMENT_TYPE
-	write16(this->contents, 16); // headerSize
-	write32(this->contents, 36); // size
-	write32(this->contents, 0); // lineNumber
-	write32(this->contents, -1); // comment
-	write32(this->contents, this->stack[this->stack_top - 1].ns); // ns
-	write32(this->contents, this->stack[this->stack_top - 1].name); // name
-	write16(this->contents, 20); // attributeStart
-	write16(this->contents, 20); // attributeSize
-	write16(this->contents, 0); // attributeCount
-	write16(this->contents, 0); // idIndex
-	write16(this->contents, 0); // classIndex
-	write16(this->contents, 0); // styleIndex
+	write16(this->fp, 0x0102); // RES_XML_START_ELEMENT_TYPE
+	write16(this->fp, 16); // headerSize
+	write32(this->fp, 36); // size
+	write32(this->fp, 0); // lineNumber
+	write32(this->fp, -1); // comment
+	write32(this->fp, this->stack[this->stack_top - 1].ns); // ns
+	write32(this->fp, this->stack[this->stack_top - 1].name); // name
+	write16(this->fp, 20); // attributeStart
+	write16(this->fp, 20); // attributeSize
+	write16(this->fp, 0); // attributeCount
+	write16(this->fp, 0); // idIndex
+	write16(this->fp, 0); // classIndex
+	write16(this->fp, 0); // styleIndex
 }
 
 void axml_end_element(struct axml_file *this) {
 	assert(!this->inside_header);
 	axml_end_begin_element(this);
 	this->stack_top--;
-	write16(this->contents, 0x0103); // RES_XML_END_ELEMENT_TYPE
-	write16(this->contents, 16); // headerSize
-	write32(this->contents, 24); // size
-	write32(this->contents, 0); // lineNumber
-	write32(this->contents, -1); // comment
-	write32(this->contents, this->stack[this->stack_top].ns); // ns
-	write32(this->contents, this->stack[this->stack_top].name); // name
+	write16(this->fp, 0x0103); // RES_XML_END_ELEMENT_TYPE
+	write16(this->fp, 16); // headerSize
+	write32(this->fp, 24); // size
+	write32(this->fp, 0); // lineNumber
+	write32(this->fp, -1); // comment
+	write32(this->fp, this->stack[this->stack_top].ns); // ns
+	write32(this->fp, this->stack[this->stack_top].name); // name
 }
 
 void axml_set_attribute(struct axml_file *this, const char *ns, const char *name, const char *raw_value, uint8_t type, uint32_t data) {
@@ -764,13 +764,13 @@ void axml_set_attribute(struct axml_file *this, const char *ns, const char *name
 	// The ns field points to the URI (instead of the name) of the desired namespace.
 	// aapt always shows the name whether the ns field points to the name or the URI.
 	// If the field is set incorrectly in AndroidManifest.xml, one will be greeted with the error “No value supplied for <android:name>” when installing the APK.
-	write32(this->contents, arsc_intern(&this->string_pool, ns)); // ns
-	write32(this->contents, arsc_intern(&this->string_pool, name)); // name
-	write32(this->contents, arsc_intern(&this->string_pool, raw_value)); // rawValue
-	write16(this->contents, 8); // typedValue.size
-	write8(this->contents, 0); // typedValue.res0
-	write8(this->contents, type); // typedValue.type
-	write32(this->contents, data); // typedValue.data
+	write32(this->fp, arsc_intern(&this->string_pool, ns)); // ns
+	write32(this->fp, arsc_intern(&this->string_pool, name)); // name
+	write32(this->fp, arsc_intern(&this->string_pool, raw_value)); // rawValue
+	write16(this->fp, 8); // typedValue.size
+	write8(this->fp, 0); // typedValue.res0
+	write8(this->fp, type); // typedValue.type
+	write32(this->fp, data); // typedValue.data
 	long offset = 0;
 	if (strcmp(name, "id") == 0) {
 		offset = 30;
@@ -780,9 +780,9 @@ void axml_set_attribute(struct axml_file *this, const char *ns, const char *name
 		offset = 34;
 	}
 	if (offset) {
-		fseek(this->contents, this->stack[this->stack_top - 1].pos + offset, SEEK_SET);
-		write16(this->contents, this->stack[this->stack_top - 1].attribute_count);
-		fseek(this->contents, 0, SEEK_END);
+		fseek(this->fp, this->stack[this->stack_top - 1].pos + offset, SEEK_SET);
+		write16(this->fp, this->stack[this->stack_top - 1].attribute_count);
+		fseek(this->fp, 0, SEEK_END);
 	}
 }
 
