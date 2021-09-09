@@ -258,6 +258,9 @@ struct arsc_file {
 	struct arsc_string_pool keys;
 	uint8_t spec_type_id;
 	size_t spec_entry_count;
+	long spec_entry_flags_start;
+	uint32_t *spec_entry_flags;
+	uint32_t spec_entry_flag_mask;
 	// The number of name-value pairs in the current complex resource entry. Used internally.
 	size_t current_map_size;
 	long config_start;
@@ -371,7 +374,15 @@ void arsc_begin_type(struct arsc_file *this, uint8_t type, size_t entry_count) {
 	write32(this->fp, entry_count * 4 + 16); // size
 	write32(this->fp, type); // id, res0, res1
 	write32(this->fp, entry_count); // entryCount
-	for (size_t i = 0; i < entry_count; i++) write32(this->fp, 0);
+	// The flags for each entry indicate what may affect its modifier resolution process.
+	// They seem unused; Android chooses the right resource even if all the flags are zero.
+	this->spec_entry_flags_start = ftell(this->fp);
+	this->spec_entry_flags = calloc(entry_count, 4);
+	if (!this->spec_entry_flags) {
+		perror("calloc");
+		exit(EXIT_FAILURE);
+	}
+	fwrite(this->spec_entry_flags, 4, entry_count, this->fp);
 	this->spec_type_id = type;
 	this->spec_entry_count = entry_count;
 }
@@ -379,6 +390,12 @@ void arsc_begin_type(struct arsc_file *this, uint8_t type, size_t entry_count) {
 void arsc_end_type(struct arsc_file *this) {
 	assert(this->spec_type_id);
 	this->spec_type_id = 0;
+	fseek(this->fp, this->spec_entry_flags_start, SEEK_SET);
+	for (size_t i = 0; i < this->spec_entry_count; i++) {
+		write32(this->fp, this->spec_entry_flags[i]);
+	}
+	free(this->spec_entry_flags);
+	fseek(this->fp, 0, SEEK_END);
 }
 
 void arsc_begin_configuration(struct arsc_file *this,
@@ -532,6 +549,25 @@ void arsc_begin_configuration(struct arsc_file *this,
 	assert(ftell(this->fp) - this->config_start == 56);
 
 	for (size_t i = 0; i < this->spec_entry_count; i++) write32(this->fp, -1);
+
+	this->spec_entry_flag_mask = 0;
+	if (mcc) this->spec_entry_flag_mask |= 1 << 0; // CONFIG_MCC
+	if (mnc) this->spec_entry_flag_mask |= 1 << 1; // CONFIG_MNC
+	if (bcp47 && *bcp47) this->spec_entry_flag_mask |= 1 << 2; // CONFIG_LOCALE
+	if (touchscreen) this->spec_entry_flag_mask |= 1 << 3; // CONFIG_TOUCHSCREEN
+	if (keyboard) this->spec_entry_flag_mask |= 1 << 4; // CONFIG_KEYBOARD
+	if (input_flags & 0x0f) this->spec_entry_flag_mask |= 1 << 5; // CONFIG_KEYBOARD_HIDDEN
+	if (navigation) this->spec_entry_flag_mask |= 1 << 6; // CONFIG_NAVIGATION
+	if (orientation) this->spec_entry_flag_mask |= 1 << 7; // CONFIG_ORIENTATION
+	if (density) this->spec_entry_flag_mask |= 1 << 8; // CONFIG_DENSITY
+	if (width || height) this->spec_entry_flag_mask |= 1 << 9; // CONFIG_SCREEN_SIZE
+	if (sdk) this->spec_entry_flag_mask |= 1 << 10; // CONFIG_VERSION
+	if (screen_layout & 0x003f) this->spec_entry_flag_mask |= 1 << 11; // CONFIG_SCREEN_LAYOUT
+	if (ui_mode) this->spec_entry_flag_mask |= 1 << 12; // CONFIG_UI_MODE
+	if (smallest_width) this->spec_entry_flag_mask |= 1 << 13; // CONFIG_SMALLEST_SCREEN_SIZE
+	if (screen_layout & 0x00c0) this->spec_entry_flag_mask |= 1 << 14; // CONFIG_LAYOUTDIR
+	if (screen_layout & 0x0300) this->spec_entry_flag_mask |= 1 << 15; // CONFIG_SCREEN_ROUND
+	if (color & 0x0f) this->spec_entry_flag_mask |= 1 << 16; // CONFIG_COLOR_MODE
 }
 
 void arsc_end_configuration(struct arsc_file *this) {
@@ -555,6 +591,7 @@ static void arsc_index_entry(struct arsc_file *this, size_t index) {
 	fseek(this->fp, this->config_start + index * 4 + 56, SEEK_SET);
 	write32(this->fp, offset);
 	fseek(this->fp, 0, SEEK_END);
+	this->spec_entry_flags[index] |= this->spec_entry_flag_mask;
 }
 
 // Simple entry
