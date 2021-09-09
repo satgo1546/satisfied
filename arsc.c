@@ -904,20 +904,20 @@ int main(int argc, char **argv) {
 	arsc_begin_type(&r, 0x04, 1); // string
 		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 			arsc_entry(&r, 0);
-			arsc_set_string(&r, "abd", "Grass.");
+			arsc_set_string(&r, "", "Grass.");
 		arsc_end_configuration(&r);
 		arsc_begin_configuration(&r, 0, 0, "zh-CN", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 			arsc_entry(&r, 0);
-			arsc_set_string(&r, "abd", "草。");
+			arsc_set_string(&r, "", "草。");
 		arsc_end_configuration(&r);
 		arsc_begin_configuration(&r, 0, 0, "ja-JP", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 			arsc_entry(&r, 0);
-			arsc_set_string(&r, "abd", "くさ。");
+			arsc_set_string(&r, "", "くさ。");
 		arsc_end_configuration(&r);
 	arsc_end_type(&r);
 	arsc_begin_type(&r, 0x07, 1); // array
 		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_begin_entry(&r, 0, "abe");
+			arsc_begin_entry(&r, 0, "");
 				arsc_set_int32(&r, NULL, 114);
 				arsc_set_int32(&r, NULL, 514);
 				arsc_set_int32(&r, NULL, -1919);
@@ -928,12 +928,12 @@ int main(int argc, char **argv) {
 	arsc_begin_type(&r, 0x08, 1); // drawable
 		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 			arsc_entry(&r, 0);
-			arsc_set_string(&r, "icon", "a.png");
+			arsc_set_string(&r, "", "a.png");
 		arsc_end_configuration(&r);
 	arsc_end_type(&r);
 	arsc_begin_type(&r, 0x12, 1); // plurals
 		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_begin_entry(&r, 0, "pp");
+			arsc_begin_entry(&r, 0, "");
 				arsc_set_string(&r, "one", "one's string");
 				arsc_set_string(&r, "other", "other's string");
 			arsc_end_entry(&r);
