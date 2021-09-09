@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="string_name">ce shi haha heng heng</string>
+	<string name="ttttt">Best p哼ractices for <annotation font="wo cao ; 哼 a &lt;&gt;=&quot;" wtf="123">text</annotation> on Android</string>
+	<integer name="ttttt">114514</integer>
+        <integer-array
+            name="integer_array_name">
+            <item
+                >444</item>
+							<item>0</item>
+        </integer-array>
+				<integer-array name="hinewarray">@integer-array/integer_array_name</integer-array>
+        <array name="colors">
+            <item>13</item>
+            <item>helelo</item>
+            <item>#FF0000FF</item>
+        </array>
+<plurals name="numberOfSongsAvailable">
+        <!--
+             As a developer, you should always supply "one" and "other"
+             strings. Your translators will know which strings are actually
+             needed for their language. Always include %d in "one" because
+             translators will need to use %d for languages where "one"
+             doesn't mean 1 (as explained above).
+          -->
+        <item quantity="one">%d song found.</item>
+        <item quantity="other">%d songs found.</item>
+    </plurals>
+</resources>
