@@ -3,6 +3,8 @@ package net.hanshq.hello;
 import android.app.*;
 import android.os.*;
 import android.widget.*;
+import android.view.*;
+import android.graphics.*;
 import android.provider.*;
 import android.content.*;
 import android.content.res.*;
@@ -10,7 +12,7 @@ import android.net.*;
 import java.io.*;
 import java.util.concurrent.*;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements View.OnClickListener {
 	static {
 		System.loadLibrary("somelib");
 	}
@@ -26,19 +28,53 @@ public class MainActivity extends Activity {
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		LinearLayout LL = new LinearLayout(this);
+		LL.setBackgroundColor(0xffabcdef);
+		LL.setOrientation(LinearLayout.VERTICAL);
+
+		ViewGroup.LayoutParams LLParams = new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT);
+
+		LL.setWeightSum(6f);
+		LL.setLayoutParams(LLParams);
+		Button btn = new Button(this);
+		btn.setText("1. 我 装 我 自 己 — I install myself");
+		btn.setOnClickListener(this);
+		btn.setTextColor(0xff123456);
+		LL.addView(btn);
+		Button btn2 = new Button(this);
+		btn2.setTextColor(0xff123456);
+		try{
+			int[] a = getResources().getIntArray(0x7f070000);
+			btn2.setText("2. " + a[0] + a[1] + a[2] + a[3] + " · " + getResources().getString(0x7f040000));
+		}catch(Exception e){
+			btn2.setText("2. " + e);
+		}
+		LL.addView(btn2);
+		Button btn3 = new Button(this);
+		try{
+			btn3.setText("3. " + getResources().getQuantityString(0x7f120000, 1));
+		}catch(Exception e){
+			btn3.setText("3. " + e);
+		}
+		btn3.setTextColor(0xff123456);
+		LL.addView(btn3);
+		setContentView(LL);
+		if (false) {
+			new AlertDialog.Builder(this).setMessage("噔噔咚！库加载不进来！")
+				.setPositiveButton("哼哼", new DialogInterface.OnClickListener() {
+					public void onClick(DialogInterface dialog, int id) {
+						// Handle Ok
+					}
+				})
+			.create().show();
+			return;
+		}
+		setAssetManager(getAssets());
+	}
+
+	public void onClick(View v) {
 		try {
-			super.onCreate(savedInstanceState);
-			if (false) {
-				new AlertDialog.Builder(this).setMessage("噔噔咚！库加载不进来！")
-					.setPositiveButton("哼哼", new DialogInterface.OnClickListener() {
-						public void onClick(DialogInterface dialog, int id) {
-							// Handle Ok
-						}
-					})
-				.create().show();
-				return;
-			}
-			setAssetManager(getAssets());
 			openFileOutput("a.apk", Build.VERSION.SDK_INT >= 24 ? MODE_PRIVATE : MODE_WORLD_READABLE | MODE_WORLD_WRITEABLE).close();
 
 			wtf(apkTest(new File(getFilesDir(), "a.apk").getAbsolutePath())+".");
