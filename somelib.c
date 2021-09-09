@@ -8,7 +8,7 @@
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 
-#include "../bits.c"
+#include "bits.c"
 
 static const char *const messages[] = {
 	"Hello, world!",
@@ -88,7 +88,7 @@ JNIEXPORT jint JNICALL Java_net_hanshq_hello_MainActivity_apkTest(JNIEnv *env, j
 	FILE *fp = fopen(filename, "wb");
 	if (!fp) return errno;
 	FILE *fin = fassetopen("small.apk", "rb");
-	copy_fp(fp, fin);
+	copy_file_fp(fp, fin);
 	fclose(fin);
 	fclose(fp);
 	(*env)->ReleaseStringUTFChars(env, jfilename, filename);
