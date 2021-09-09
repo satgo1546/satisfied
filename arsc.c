@@ -314,13 +314,7 @@ void arsc_begin_file(struct arsc_file *this, const char *package_name) {
 	this->config_start = 0;
 }
 
-void arsc_end_file(struct arsc_file *this, const char *filename) {
-	FILE *fp = fopen(filename, "wb");
-	if (!fp) {
-		perror("fopen");
-		exit(EXIT_FAILURE);
-	}
-
+void arsc_end_file_fp(struct arsc_file *this, FILE *fp) {
 	const long start = ftell(fp);
 	write16(fp, 0x0002); // RES_TABLE_TYPE
 	write16(fp, 12); // headerSize
@@ -344,7 +338,7 @@ void arsc_end_file(struct arsc_file *this, const char *filename) {
 	arsc_end_string_pool(&this->keys, fp);
 
 	rewind(this->fp);
-	copy_fp(fp, this->fp);
+	copy_file_fp(fp, this->fp);
 
 	long size = ftell(fp) - start;
 	fseek(fp, start + 4, SEEK_SET);
@@ -353,8 +347,17 @@ void arsc_end_file(struct arsc_file *this, const char *filename) {
 	fseek(fp, package_start + 4, SEEK_SET);
 	write32(fp, size);
 
-	fclose(fp);
 	fclose(this->fp);
+}
+
+void arsc_end_file(struct arsc_file *this, const char *filename) {
+	FILE *fp = fopen(filename, "wb");
+	if (!fp) {
+		perror("fopen");
+		exit(EXIT_FAILURE);
+	}
+	arsc_end_file_fp(this, fp);
+	fclose(fp);
 }
 
 void arsc_begin_type(struct arsc_file *this, uint8_t type, size_t entry_count) {
@@ -655,16 +658,10 @@ static void axml_end_header(struct axml_file *this) {
 	}
 }
 
-void axml_end_file(struct axml_file *this, const char *filename) {
+void axml_end_file_fp(struct axml_file *this, FILE *fp) {
 	// A valid XML document must have a root tag.
 	assert(!this->inside_header);
 	assert(!this->stack_top);
-
-	FILE *fp = fopen(filename, "wb");
-	if (!fp) {
-		perror("fopen");
-		exit(EXIT_FAILURE);
-	}
 
 	const long start = ftell(fp);
 	write16(fp, 0x0003); // RES_XML_TYPE
@@ -677,14 +674,23 @@ void axml_end_file(struct axml_file *this, const char *filename) {
 	write16(fp, 8); // headerSize
 	write32(fp, this->attr_count * 4 + 8); // size
 	rewind(this->contents);
-	copy_fp(fp, this->contents);
+	copy_file_fp(fp, this->contents);
 
 	long size = ftell(fp) - start;
 	fseek(fp, start + 4, SEEK_SET);
 	write32(fp, size);
 
-	fclose(fp);
 	fclose(this->contents);
+}
+
+void axml_end_file(struct axml_file *this, const char *filename) {
+	FILE *fp = fopen(filename, "wb");
+	if (!fp) {
+		perror("fopen");
+		exit(EXIT_FAILURE);
+	}
+	axml_end_file_fp(this, fp);
+	fclose(fp);
 }
 
 void axml_define_attr(struct axml_file *this, uint32_t id, const char *name) {
@@ -880,7 +886,7 @@ int main(int argc, char **argv) {
 	arsc_begin_type(&r, 0x08, 1); // drawable
 		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 			arsc_entry(&r, 0);
-			arsc_set_string(&r, "icon", "res/drawable/icon.png");
+			arsc_set_string(&r, "icon", "a.png");
 		arsc_end_configuration(&r);
 	arsc_end_type(&r);
 	arsc_begin_type(&r, 0x12, 1); // plurals

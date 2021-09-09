@@ -109,7 +109,7 @@ size_t read_file(const char *filename, void **ptr) {
 	return sz;
 }
 
-size_t copy_fp(FILE *fout, FILE *fin) {
+size_t copy_file_fp(FILE *fout, FILE *fin) {
 	static unsigned char* buffer = NULL;
 	if (!buffer) buffer = malloc(33554432);
 
@@ -126,7 +126,7 @@ size_t copy_file(FILE *f, const char *filename) {
 		perror("fopen");
 		exit(1);
 	}
-	size_t sz = copy_fp(f, fin);
+	size_t sz = copy_file_fp(f, fin);
 	if (fclose(fin) == EOF) {
 		perror("fclose");
 		exit(1);
