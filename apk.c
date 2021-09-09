@@ -509,6 +509,7 @@ void arsc_end_file_fp(struct arsc_file *this, FILE *fp) {
 	size += start - package_start;
 	fseek(fp, package_start + 4, SEEK_SET);
 	write32(fp, size);
+	fseek(fp, 0, SEEK_END);
 
 	fclose(this->fp);
 }
@@ -879,6 +880,7 @@ void axml_end_file_fp(struct axml_file *this, FILE *fp) {
 	long size = ftell(fp) - start;
 	fseek(fp, start + 4, SEEK_SET);
 	write32(fp, size);
+	fseek(fp, 0, SEEK_END);
 
 	fclose(this->fp);
 }
@@ -1008,109 +1010,129 @@ int main(int argc, char **argv) {
 	zip_begin_archive(&f, "slzapk-output.apk");
 
 	zip_begin_file(&f, "AndroidManifest.xml", "b", 4);
-	struct axml_file m;
-	axml_begin_file(&m);
-	axml_define_attr(&m, 0x0101021b, "versionCode");
-	axml_define_attr(&m, 0x0101021c, "versionName");
-	axml_define_attr(&m, 0x0101020c, "minSdkVersion");
-	axml_define_attr(&m, 0x01010270, "targetSdkVersion");
-	axml_define_attr(&m, 0x01010003, "name");
-	axml_define_attr(&m, 0x01010001, "label");
-	axml_define_attr(&m, 0x01010002, "icon");
-	axml_define_attr(&m, 0x01010018, "authorities");
-	axml_define_attr(&m, 0x0101001b, "grantUriPermissions");
-	axml_define_attr(&m, 0x01010010, "exported");
+	{
+		struct axml_file m;
+		axml_begin_file(&m);
+		axml_define_attr(&m, 0x0101021b, "versionCode");
+		axml_define_attr(&m, 0x0101021c, "versionName");
+		axml_define_attr(&m, 0x0101020c, "minSdkVersion");
+		axml_define_attr(&m, 0x01010270, "targetSdkVersion");
+		axml_define_attr(&m, 0x01010003, "name");
+		axml_define_attr(&m, 0x01010001, "label");
+		axml_define_attr(&m, 0x01010002, "icon");
+		axml_define_attr(&m, 0x01010018, "authorities");
+		axml_define_attr(&m, 0x0101001b, "grantUriPermissions");
+		axml_define_attr(&m, 0x01010010, "exported");
 
-	#define ANDROID_RESOURCES "http://schemas.android.com/apk/res/android"
-	axml_begin_element(&m, NULL, "manifest");
-		axml_set_int32(&m, ANDROID_RESOURCES, "versionCode", 1);
-		axml_set_string(&m, ANDROID_RESOURCES, "versionName", "哼，哼，啊啊啊啊啊");
-		axml_set_string(&m, NULL, "package", "net.hanshq.hello");
-		axml_begin_element(&m, NULL, "uses-sdk");
-			axml_set_int32(&m, ANDROID_RESOURCES, "minSdkVersion", 10);
-			axml_set_int32(&m, ANDROID_RESOURCES, "targetSdkVersion", 29);
-		axml_end_element(&m);
-		axml_begin_element(&m, NULL, "uses-permission");
-			axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
-		axml_end_element(&m);
-		axml_begin_element(&m, NULL, "application");
-			axml_set_string(&m, ANDROID_RESOURCES, "label", "我的第一个 Java 应用程序");
-			axml_set_reference(&m, ANDROID_RESOURCES, "icon", 0x7f080000);
-			axml_begin_element(&m, NULL, "activity");
-				axml_set_string(&m, ANDROID_RESOURCES, "name", ".MainActivity");
-				axml_set_bool(&m, ANDROID_RESOURCES, "exported", true);
-				axml_begin_element(&m, NULL, "intent-filter");
-					axml_begin_element(&m, NULL, "action");
-						axml_set_string(&m, ANDROID_RESOURCES, "name", "android.intent.action.MAIN");
-					axml_end_element(&m);
-					axml_begin_element(&m, NULL, "category");
-						axml_set_string(&m, ANDROID_RESOURCES, "name", "android.intent.category.LAUNCHER");
+		#define ANDROID_RESOURCES "http://schemas.android.com/apk/res/android"
+		axml_begin_element(&m, NULL, "manifest");
+			axml_set_int32(&m, ANDROID_RESOURCES, "versionCode", 1);
+			axml_set_string(&m, ANDROID_RESOURCES, "versionName", "哼，哼，啊啊啊啊啊");
+			axml_set_string(&m, NULL, "package", "net.hanshq.hello");
+			axml_begin_element(&m, NULL, "uses-sdk");
+				axml_set_int32(&m, ANDROID_RESOURCES, "minSdkVersion", 10);
+				axml_set_int32(&m, ANDROID_RESOURCES, "targetSdkVersion", 29);
+			axml_end_element(&m);
+			axml_begin_element(&m, NULL, "uses-permission");
+				axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
+			axml_end_element(&m);
+			axml_begin_element(&m, NULL, "application");
+				axml_set_string(&m, ANDROID_RESOURCES, "label", "我的第一个 Java 应用程序");
+				axml_set_reference(&m, ANDROID_RESOURCES, "icon", 0x7f080000);
+				axml_begin_element(&m, NULL, "activity");
+					axml_set_string(&m, ANDROID_RESOURCES, "name", ".MainActivity");
+					axml_set_bool(&m, ANDROID_RESOURCES, "exported", true);
+					axml_begin_element(&m, NULL, "intent-filter");
+						axml_begin_element(&m, NULL, "action");
+							axml_set_string(&m, ANDROID_RESOURCES, "name", "android.intent.action.MAIN");
+						axml_end_element(&m);
+						axml_begin_element(&m, NULL, "category");
+							axml_set_string(&m, ANDROID_RESOURCES, "name", "android.intent.category.LAUNCHER");
+						axml_end_element(&m);
 					axml_end_element(&m);
 				axml_end_element(&m);
+				axml_begin_element(&m, NULL, "provider");
+					axml_set_string(&m, ANDROID_RESOURCES, "name", ".FileProvider");
+					axml_set_bool(&m, ANDROID_RESOURCES, "exported", false);
+					axml_set_string(&m, ANDROID_RESOURCES, "authorities", "net.hanshq.hello.FileProvider");
+					axml_set_bool(&m, ANDROID_RESOURCES, "grantUriPermissions", true);
+				axml_end_element(&m);
 			axml_end_element(&m);
-			axml_begin_element(&m, NULL, "provider");
-				axml_set_string(&m, ANDROID_RESOURCES, "name", ".FileProvider");
-				axml_set_bool(&m, ANDROID_RESOURCES, "exported", false);
-				axml_set_string(&m, ANDROID_RESOURCES, "authorities", "net.hanshq.hello.FileProvider");
-				axml_set_bool(&m, ANDROID_RESOURCES, "grantUriPermissions", true);
+			axml_begin_element(&m, NULL, "uses-permission");
+				axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
 			axml_end_element(&m);
 		axml_end_element(&m);
-		axml_begin_element(&m, NULL, "uses-permission");
-			axml_set_string(&m, ANDROID_RESOURCES, "name", "android.permission.REQUEST_INSTALL_PACKAGES");
-		axml_end_element(&m);
-	axml_end_element(&m);
 
-	axml_end_file(&m, "AndroidManifest.xml");
+		axml_end_file_fp(&m, f.fp);
+	}
 	zip_end_file(&f);
 
 	zip_begin_file(&f, "resources.arsc", "b", 4);
-	struct arsc_file r;
-	arsc_begin_file(&r, "net.hanshq.hello");
+	{
+		struct arsc_file r;
+		arsc_begin_file(&r, "net.hanshq.hello");
 
-	arsc_begin_type(&r, 0x04, 1); // string
-		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_entry(&r, 0);
-			arsc_set_string(&r, "", "Grass.");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, 0, 0, "zh-CN", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_entry(&r, 0);
-			arsc_set_string(&r, "", "草。");
-		arsc_end_configuration(&r);
-		arsc_begin_configuration(&r, 0, 0, "ja-JP", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_entry(&r, 0);
-			arsc_set_string(&r, "", "くさ。");
-		arsc_end_configuration(&r);
-	arsc_end_type(&r);
-	arsc_begin_type(&r, 0x07, 1); // array
-		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_begin_entry(&r, 0, "");
-				arsc_set_int32(&r, NULL, 114);
-				arsc_set_int32(&r, NULL, 514);
-				arsc_set_int32(&r, NULL, -1919);
-				arsc_set_int32(&r, NULL, 810);
-			arsc_end_entry(&r);
-		arsc_end_configuration(&r);
-	arsc_end_type(&r);
-	arsc_begin_type(&r, 0x08, 1); // drawable
-		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_entry(&r, 0);
-			arsc_set_string(&r, "", "a.png");
-		arsc_end_configuration(&r);
-	arsc_end_type(&r);
-	arsc_begin_type(&r, 0x12, 1); // plurals
-		arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-			arsc_begin_entry(&r, 0, "");
-				arsc_set_string(&r, "one", "one's string");
-				arsc_set_string(&r, "other", "other's string");
-			arsc_end_entry(&r);
-		arsc_end_configuration(&r);
-	arsc_end_type(&r);
+		arsc_begin_type(&r, 0x04, 1); // string
+			arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+				arsc_entry(&r, 0);
+				arsc_set_string(&r, "", "Grass.");
+			arsc_end_configuration(&r);
+			arsc_begin_configuration(&r, 0, 0, "zh-CN", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+				arsc_entry(&r, 0);
+				arsc_set_string(&r, "", "草。");
+			arsc_end_configuration(&r);
+			arsc_begin_configuration(&r, 0, 0, "ja-JP", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+				arsc_entry(&r, 0);
+				arsc_set_string(&r, "", "くさ。");
+			arsc_end_configuration(&r);
+		arsc_end_type(&r);
+		arsc_begin_type(&r, 0x07, 1); // array
+			arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+				arsc_begin_entry(&r, 0, "");
+					arsc_set_int32(&r, NULL, 114);
+					arsc_set_int32(&r, NULL, 514);
+					arsc_set_int32(&r, NULL, -1919);
+					arsc_set_int32(&r, NULL, 810);
+				arsc_end_entry(&r);
+			arsc_end_configuration(&r);
+		arsc_end_type(&r);
+		arsc_begin_type(&r, 0x08, 1); // drawable
+			arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+				arsc_entry(&r, 0);
+				arsc_set_string(&r, "", "a.png");
+			arsc_end_configuration(&r);
+		arsc_end_type(&r);
+		arsc_begin_type(&r, 0x12, 1); // plurals
+			arsc_begin_configuration(&r, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+				arsc_begin_entry(&r, 0, "");
+					arsc_set_string(&r, "one", "one's string");
+					arsc_set_string(&r, "other", "other's string");
+				arsc_end_entry(&r);
+			arsc_end_configuration(&r);
+		arsc_end_type(&r);
 
-	arsc_end_file(&r, "resources.arsc");
+		arsc_end_file_fp(&r, f.fp);
+	}
 	zip_end_file(&f);
 
 	zip_begin_file(&f, "classes.dex", "b", 4);
-	copy_file(f.fp, "bits.c");
+		copy_file(f.fp, "command_line_android/build/apk/classes.dex");
+	zip_end_file(&f);
+
+	zip_begin_file(&f, "a.png", "b", 4);
+		copy_file(f.fp, "command_line_android/res/drawable/icon.png");
+	zip_end_file(&f);
+
+	zip_begin_file(&f, "assets/small.apk", "b", 4);
+		copy_file(f.fp, "command_line_android/assets/small.apk");
+	zip_end_file(&f);
+
+	zip_begin_file(&f, "lib/armeabi-v7a/libsomelib.so", "b", 4);
+		copy_file(f.fp, "command_line_android/build/apk/lib/armeabi-v7a/libsomelib.so");
+	zip_end_file(&f);
+
+	zip_begin_file(&f, "lib/x86/libsomelib.so", "b", 4);
+		copy_file(f.fp, "command_line_android/build/apk/lib/x86/libsomelib.so");
 	zip_end_file(&f);
 
 	zip_end_archive(&f);
