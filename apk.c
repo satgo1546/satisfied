@@ -801,7 +801,7 @@ void arsc_set_data(struct arsc_file *this, const char *name, uint8_t type, uint3
 			// I don't know which pool, if any, the name field in ResTable_map refers to.
 			abort();
 		} else {
-			write32(this->fp, 0x02000000 | this->current_map_size - 1); // name in ResTable_map
+			write32(this->fp, 0x02000000 | (this->current_map_size - 1)); // name in ResTable_map
 		}
 	}
 write_data:
@@ -1116,23 +1116,23 @@ int main(int argc, char **argv) {
 	zip_end_file(&f);
 
 	zip_begin_file(&f, "classes.dex", "b", 4);
-		copy_file(f.fp, "command_line_android/build/apk/classes.dex");
+		copy_file(f.fp, "classes.dex");
 	zip_end_file(&f);
 
 	zip_begin_file(&f, "a.png", "b", 4);
-		copy_file(f.fp, "command_line_android/res/drawable/icon.png");
+		copy_file(f.fp, "icon.png");
 	zip_end_file(&f);
 
 	zip_begin_file(&f, "assets/small.apk", "b", 4);
-		copy_file(f.fp, "command_line_android/assets/small.apk");
+		copy_file(f.fp, "small.apk");
 	zip_end_file(&f);
 
 	zip_begin_file(&f, "lib/armeabi-v7a/libsomelib.so", "b", 4);
-		copy_file(f.fp, "command_line_android/build/apk/lib/armeabi-v7a/libsomelib.so");
+		copy_file(f.fp, "arm.so");
 	zip_end_file(&f);
 
 	zip_begin_file(&f, "lib/x86/libsomelib.so", "b", 4);
-		copy_file(f.fp, "command_line_android/build/apk/lib/x86/libsomelib.so");
+		copy_file(f.fp, "x86.so");
 	zip_end_file(&f);
 
 	zip_end_archive(&f);
