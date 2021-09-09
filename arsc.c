@@ -258,7 +258,8 @@ struct arsc_file {
 	struct arsc_string_pool keys;
 	uint8_t spec_type_id;
 	size_t spec_entry_count;
-	size_t current_array_size;
+	// The number of name-value pairs in the current complex resource entry. Used internally.
+	size_t current_map_size;
 	long config_start;
 };
 
@@ -310,7 +311,8 @@ void arsc_begin_file(struct arsc_file *this, const char *package_name) {
 	utf8_to_utf16(this->package_name, package_name);
 	arsc_begin_string_pool(&this->string_pool);
 	arsc_begin_string_pool(&this->keys);
-	this->current_array_size = SIZE_MAX;
+	this->spec_type_id = 0;
+	this->current_map_size = SIZE_MAX;
 	this->config_start = 0;
 }
 
@@ -363,6 +365,7 @@ void arsc_end_file(struct arsc_file *this, const char *filename) {
 void arsc_begin_type(struct arsc_file *this, uint8_t type, size_t entry_count) {
 	// Type IDs start	at 1; 0 is invalid.
 	assert(type && type <= arsc_type_count);
+	assert(!this->spec_type_id);
 	write16(this->fp, 0x0202); // RES_TABLE_TYPE_SPEC_TYPE
 	write16(this->fp, 16); // headerSize
 	write32(this->fp, entry_count * 4 + 16); // size
@@ -374,8 +377,9 @@ void arsc_begin_type(struct arsc_file *this, uint8_t type, size_t entry_count) {
 }
 
 void arsc_end_type(struct arsc_file *this) {
+	assert(this->spec_type_id);
+	this->spec_type_id = 0;
 }
-
 
 void arsc_begin_configuration(struct arsc_file *this,
 	uint16_t mcc, uint16_t mnc,
@@ -386,6 +390,7 @@ void arsc_begin_configuration(struct arsc_file *this,
 	uint8_t keyboard, uint8_t navigation, uint8_t input_flags,
 	uint16_t sdk
 ) {
+	assert(this->spec_type_id);
 	assert(!this->config_start);
 
 	write16(this->fp, 0x0201); // RES_TABLE_TYPE_TYPE
@@ -558,7 +563,7 @@ void arsc_entry(struct arsc_file *this, size_t index) {
 	// ResTable_entry
 	write16(this->fp, 8); // size
 	write16(this->fp, 0); // flags
-	this->current_array_size = SIZE_MAX;
+	this->current_map_size = SIZE_MAX;
 }
 
 // Complex entry
@@ -570,22 +575,22 @@ void arsc_begin_entry(struct arsc_file *this, size_t index, const char *name) {
 	write32(this->fp, arsc_intern(&this->keys, name)); // key
 	write32(this->fp, 0); // parent
 	write32(this->fp, 0); // count (to be filled in)
-	this->current_array_size = 0;
+	this->current_map_size = 0;
 }
 
 void arsc_end_entry(struct arsc_file *this) {
 	assert(this->config_start);
-	fseek(this->fp, -(long) this->current_array_size * 12 - 4, SEEK_CUR);
-	write32(this->fp, this->current_array_size); // count
+	fseek(this->fp, -(long) this->current_map_size * 12 - 4, SEEK_CUR);
+	write32(this->fp, this->current_map_size); // count
 	fseek(this->fp, 0, SEEK_END);
-	this->current_array_size = SIZE_MAX;
+	this->current_map_size = SIZE_MAX;
 }
 
 void arsc_set_data(struct arsc_file *this, const char *name, uint8_t type, uint32_t data) {
-	if (this->current_array_size == SIZE_MAX) {
+	if (this->current_map_size == SIZE_MAX) {
 		write32(this->fp, arsc_intern(&this->keys, name)); // key in ResTable_entry
 	} else {
-		this->current_array_size++;
+		this->current_map_size++;
 		if (name) {
 			static const char names[][6] = {
 				"type", "min", "max", "l10n",
@@ -600,7 +605,7 @@ void arsc_set_data(struct arsc_file *this, const char *name, uint8_t type, uint3
 			// I don't know which pool, if any, the name field in ResTable_map refers to.
 			abort();
 		} else {
-			write32(this->fp, 0x02000000 | this->current_array_size - 1); // name in ResTable_map
+			write32(this->fp, 0x02000000 | this->current_map_size - 1); // name in ResTable_map
 		}
 	}
 write_data:
