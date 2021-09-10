@@ -84,124 +84,57 @@ uint32_t crc32(FILE *fp) {
 	return ~r;
 }
 
-// The following code is derived from LibTomCrypt/src/hashes/sha1.c by Tom St Denis.
-
-#define F0(x,y,z) (z ^ (x & (y ^ z)))
-#define F1(x,y,z) (x ^ y ^ z)
-#define F2(x,y,z) ((x & y) | (z & (x | y)))
-#define F3(x,y,z) (x ^ y ^ z)
-#define LOAD32H(x, y)                            \
-  do { x = ((uint32_t)((y)[0] & 255)<<24) | \
-           ((uint32_t)((y)[1] & 255)<<16) | \
-           ((uint32_t)((y)[2] & 255)<<8)  | \
-           ((uint32_t)((y)[3] & 255)); } while(0)
-
-#define ROLc(x,n) __builtin_rotateleft32(x,n)
-
-void sha1_compress(uint32_t *state, unsigned char *buf) {
-	uint32_t a,b,c,d,e,W[80],i,t;
-
-	/* copy the state into 512-bits into W[0..15] */
-	for (i = 0; i < 16; i++) {
-		LOAD32H(W[i], buf + i * 4);
-	}
-
-	/* copy state */
-	a = state[0];
-	b = state[1];
-	c = state[2];
-	d = state[3];
-	e = state[4];
-
-	for (i = 16; i < 80; i++) {
-		W[i] = ROLc(W[i-3] ^ W[i-8] ^ W[i-14] ^ W[i-16], 1);
-	}
-
-	for (i = 0; i < 20; i++) {
-		e = ROLc(a, 5) + F0(b,c,d) + e + W[i] + 0x5a827999;
-		b = ROLc(b, 30);
-		t = e; e = d; d = c; c = b; b = a; a = t;
-	}
-
-	for (i = 20; i < 40; i++) {
-		e = ROLc(a, 5) + F1(b,c,d) + e + W[i] + 0x6ed9eba1;
-		b = ROLc(b, 30);
-		t = e; e = d; d = c; c = b; b = a; a = t;
-	}
-
-	for (i = 40; i < 60; i++) {
-		e = ROLc(a, 5) + F2(b,c,d) + e + W[i] + 0x8f1bbcdc;
-		b = ROLc(b, 30);
-		t = e; e = d; d = c; c = b; b = a; a = t;
-	}
-
-	for (i = 60; i < 80; i++) {
-		e = ROLc(a, 5) + F3(b,c,d) + e + W[i] + 0xca62c1d6;
-		b = ROLc(b, 30);
-		t = e; e = d; d = c; c = b; b = a; a = t;
-	}
-	/* store */
-	state[0] += a;
-	state[1] += b;
-	state[2] += c;
-	state[3] += d;
-	state[4] += e;
-}
-
-// 20 bytes
-unsigned char *sha1(FILE *fp) {
-	uint64_t length = 0;
-	uint32_t state[5] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0};
-	uint32_t curlen = 0;
-	unsigned char buf[64];
-
-	while ((curlen = fread(buf, 1, 64, fp)) == 64) {
-		sha1_compress(state, buf);
-		length += 64;
-	}
-
-	/* increase the length of the message */
-	length += curlen;
-	length *= 8;
-
-	/* append the '1' bit */
-	buf[curlen++] = 0x80;
-
-	/* if the length is currently above 56 bytes we append zeros
-	 * then compress.  Then we can fall back to padding zeros and length
-	 * encoding like normal.
-	 */
-	if (curlen > 56) {
-		while (curlen < 64) {
-			buf[curlen++] = 0;
+unsigned char (*sha1(FILE *fp))[20] {
+	uint32_t a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476, e = 0xc3d2e1f0;
+	uint32_t hash[5] = {a, b, c, d, e}, w[80] = {0};
+	size_t n = 0;
+	const long start = ftell(fp);
+	for (;;) {
+		int ch = feof(fp) ? 0 : fgetc(fp);
+		if (ch == EOF) ch = 0x80;
+		w[n / 4] = (w[n / 4] << 8) | ch;
+		n++;
+		bool done = n == 56 && feof(fp);
+		if (done) {
+			long size = ftell(fp) - start;
+			w[14] = size >> 29;
+			w[15] = size << 3;
+			n = 64;
 		}
-		sha1_compress(state, buf);
-		curlen = 0;
+		if (n == 64) {
+			for (size_t i = 16; i < 80; i++) {
+				w[i] = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
+				w[i] = (w[i] << 1) | (w[i] >> 31);
+			}
+			for (size_t i = 0; i < 80; i++) {
+				uint32_t x = e + ((a << 5) | (a >> 27)) + w[i];
+				switch (i / 20) {
+				case 0: x += 0x5a827999 + (d ^ (b & (c ^ d))); break;
+				case 1: x += 0x6ed9eba1 + (b ^ c ^ d); break;
+				case 2: x += 0x8f1bbcdc + ((b & c) | (d & (b | c))); break;
+				case 3: x += 0xca62c1d6 + (b ^ c ^ d); break;
+				}
+				e = d;
+				d = c;
+				c = (b << 30) | (b >> 2);
+				b = a;
+				a = x;
+			}
+			a = hash[0] += a;
+			b = hash[1] += b;
+			c = hash[2] += c;
+			d = hash[3] += d;
+			e = hash[4] += e;
+			n = 0;
+		}
+		if (done) break;
 	}
 
-	/* pad upto 56 bytes of zeroes */
-	while (curlen < 56) {
-		buf[curlen++] = 0;
+	static unsigned char ret[20];
+	for (int i = 0; i < 20; i++) {
+		ret[i] = hash[i / 4] >> ((3 - i % 4) * 8);
 	}
-
-	/* store length */
-	buf[56] = length>>56;
-	buf[57] = length>>48;
-	buf[58] = length>>40;
-	buf[59] = length>>32;
-	buf[60] = length>>24; buf[61] = length>>16;
-	buf[62] = length>>8;  buf[63] = length;
-	sha1_compress(state, buf);
-
-	/* copy output */
-	static unsigned char out[20];
-	for (int i = 0; i < 5; i++) {
-		out[i * 4] = state[i] >> 24;
-		out[i * 4 + 1] = state[i] >> 16;
-		out[i * 4 + 2] = state[i] >> 8;
-		out[i * 4 + 3] = state[i];
-	}
-	return out;
+	return &ret;
 }
 
 
