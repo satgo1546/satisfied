@@ -13,28 +13,25 @@ const unsigned char *md5(FILE *fp) {
 	static uint32_t k[64];
 	if (!*k) for (int i = 0; i < 64; i++) k[i] = ldexp(fabs(sin(i + 1)), 32);
 
-	bool done = false;
 	uint32_t a = 0x67452301, b = 0xefcdab89, c = ~a, d = ~b;
-	uint32_t hash[4] = {a, b, c, d}, s[16];
-	uint32_t x = a, n = 0;
-
-	rewind(fp);
-	while (!done) {
-		int ch = 0;
-		if (!feof(fp)) {
-			ch = fgetc(fp);
-			if (feof(fp)) ch = 0x80;
-		}
-		s[n / 4] = x = (x >> 8) | (ch << 24);
+	uint32_t hash[4] = {a, b, c, d}, s[16] = {0};
+	size_t n = 0;
+	const long start = ftell(fp);
+	for (;;) {
+		int ch = feof(fp) ? 0 : fgetc(fp);
+		if (ch == EOF) ch = 0x80;
+		s[n / 4] = (s[n / 4] >> 8) | (ch << 24);
 		n++;
-		if (n == 56) {
-			s[14] = ftell(fp) << 3;
-			s[15] = ftell(fp) >> 29;
-			done = feof(fp);
+		bool done = n == 56 && feof(fp);
+		if (done) {
+			long size = ftell(fp) - start;
+			s[14] = size << 3;
+			s[15] = size >> 29;
+			n = 64;
 		}
-		if (n == 64 || (n == 56 && done)) {
-			for (int i = 0; i < 64; i++) {
-				x = a + s[("AECG"[i / 16] * i + "0150"[i / 16]) & 15] + k[i];
+		if (n == 64) {
+			for (size_t i = 0; i < 64; i++) {
+				uint32_t x = a + s[("AECG"[i / 16] * i + "0150"[i / 16]) & 15] + k[i];
 				switch (i / 16) {
 				case 0: x += ((c ^ d) & b) ^ d; break;
 				case 1: x += ((b ^ c) & d) ^ c; break;
@@ -53,10 +50,11 @@ const unsigned char *md5(FILE *fp) {
 			d = hash[3] += d;
 			n = 0;
 		}
+		if (done) break;
 	}
 
 	static unsigned char ret[16];
-	for (int i = 0; i < 16; i++) {
+	for (size_t i = 0; i < 16; i++) {
 		ret[i] = hash[i / 4] >> (i % 4 * 8);
 	}
 	return ret;
@@ -66,6 +64,7 @@ int main() {
 	#define testmd5(str, ...) do {\
 		FILE *f = tmpfile(); \
 		fputs(str, f); \
+		rewind(f); \
 		if (memcmp(md5(f), (const unsigned char []) {__VA_ARGS__}, 16) != 0) \
 			printf("MD5 test failure on line %d with \"%s\"\n", __LINE__, str); \
 		fclose(f); \
