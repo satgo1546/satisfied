@@ -84,6 +84,128 @@ uint32_t crc32(FILE *fp) {
 	return ~r;
 }
 
+// The following code is derived from LibTomCrypt/src/hashes/sha1.c by Tom St Denis.
+
+#define F0(x,y,z) (z ^ (x & (y ^ z)))
+#define F1(x,y,z) (x ^ y ^ z)
+#define F2(x,y,z) ((x & y) | (z & (x | y)))
+#define F3(x,y,z) (x ^ y ^ z)
+#define LOAD32H(x, y)                            \
+  do { x = ((uint32_t)((y)[0] & 255)<<24) | \
+           ((uint32_t)((y)[1] & 255)<<16) | \
+           ((uint32_t)((y)[2] & 255)<<8)  | \
+           ((uint32_t)((y)[3] & 255)); } while(0)
+
+#define ROLc(x,n) __builtin_rotateleft32(x,n)
+
+void sha1_compress(uint32_t *state, unsigned char *buf) {
+	uint32_t a,b,c,d,e,W[80],i,t;
+
+	/* copy the state into 512-bits into W[0..15] */
+	for (i = 0; i < 16; i++) {
+		LOAD32H(W[i], buf + i * 4);
+	}
+
+	/* copy state */
+	a = state[0];
+	b = state[1];
+	c = state[2];
+	d = state[3];
+	e = state[4];
+
+	for (i = 16; i < 80; i++) {
+		W[i] = ROLc(W[i-3] ^ W[i-8] ^ W[i-14] ^ W[i-16], 1);
+	}
+
+	for (i = 0; i < 20; i++) {
+		e = ROLc(a, 5) + F0(b,c,d) + e + W[i] + 0x5a827999;
+		b = ROLc(b, 30);
+		t = e; e = d; d = c; c = b; b = a; a = t;
+	}
+
+	for (i = 20; i < 40; i++) {
+		e = ROLc(a, 5) + F1(b,c,d) + e + W[i] + 0x6ed9eba1;
+		b = ROLc(b, 30);
+		t = e; e = d; d = c; c = b; b = a; a = t;
+	}
+
+	for (i = 40; i < 60; i++) {
+		e = ROLc(a, 5) + F2(b,c,d) + e + W[i] + 0x8f1bbcdc;
+		b = ROLc(b, 30);
+		t = e; e = d; d = c; c = b; b = a; a = t;
+	}
+
+	for (i = 60; i < 80; i++) {
+		e = ROLc(a, 5) + F3(b,c,d) + e + W[i] + 0xca62c1d6;
+		b = ROLc(b, 30);
+		t = e; e = d; d = c; c = b; b = a; a = t;
+	}
+	/* store */
+	state[0] += a;
+	state[1] += b;
+	state[2] += c;
+	state[3] += d;
+	state[4] += e;
+}
+
+// 20 bytes
+unsigned char *sha1(FILE *fp) {
+	uint64_t length = 0;
+	uint32_t state[5] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0};
+	uint32_t curlen = 0;
+	unsigned char buf[64];
+
+	while ((curlen = fread(buf, 1, 64, fp)) == 64) {
+		sha1_compress(state, buf);
+		length += 64;
+	}
+
+	/* increase the length of the message */
+	length += curlen;
+	length *= 8;
+
+	/* append the '1' bit */
+	buf[curlen++] = 0x80;
+
+	/* if the length is currently above 56 bytes we append zeros
+	 * then compress.  Then we can fall back to padding zeros and length
+	 * encoding like normal.
+	 */
+	if (curlen > 56) {
+		while (curlen < 64) {
+			buf[curlen++] = 0;
+		}
+		sha1_compress(state, buf);
+		curlen = 0;
+	}
+
+	/* pad upto 56 bytes of zeroes */
+	while (curlen < 56) {
+		buf[curlen++] = 0;
+	}
+
+	/* store length */
+	buf[56] = length>>56;
+	buf[57] = length>>48;
+	buf[58] = length>>40;
+	buf[59] = length>>32;
+	buf[60] = length>>24; buf[61] = length>>16;
+	buf[62] = length>>8;  buf[63] = length;
+	sha1_compress(state, buf);
+
+	/* copy output */
+	static unsigned char out[20];
+	for (int i = 0; i < 5; i++) {
+		out[i * 4] = state[i] >> 24;
+		out[i * 4 + 1] = state[i] >> 16;
+		out[i * 4 + 2] = state[i] >> 8;
+		out[i * 4 + 3] = state[i];
+	}
+	return out;
+}
+
+
+
 struct zip_archive {
 	FILE *fp;
 	struct {
@@ -182,7 +304,7 @@ void zip_end_archive(struct zip_archive *this) {
 	for (size_t i = 0; i < this->file_count; i++) {
 		long lfh_size = this->files[i].contents_start - this->files[i].lfh_start;
 		fseek(this->fp, this->files[i].lfh_start, SEEK_SET);
-		fread(buffer, 1, lfh_size, this->fp);
+		fread(buffer, lfh_size, 1, this->fp);
 		fseek(this->fp, 0, SEEK_END);
 		fputs("PK\1\2", this->fp);
 		write16(this->fp, (0 << 8) | 0); // version made by = MS-DOS 0.0
@@ -192,7 +314,7 @@ void zip_end_archive(struct zip_archive *this) {
 		write16(this->fp, !this->files[i].binary); // internal file attributes
 		write32(this->fp, this->files[i].external_file_attributes); // external file attributes
 		write32(this->fp, this->files[i].lfh_start); // relative offset of local header
-		fwrite(buffer + 30, 1, lfh_size - 30, this->fp);
+		fwrite(buffer + 30, lfh_size - 30, 1, this->fp);
 		(void) this->fp; // file comment
 	}
 	long cd_size = ftell(this->fp) - cd_start;
@@ -1136,4 +1258,29 @@ int main(int argc, char **argv) {
 	zip_end_file(&f);
 
 	zip_end_archive(&f);
+	{
+		#define testsha1(str, ...) do {\
+			FILE *f = tmpfile(); \
+			fputs(str, f); \
+			rewind(f); \
+			if (memcmp(sha1(f), (const unsigned char []) {__VA_ARGS__}, 20) != 0) \
+				printf("SHA-1 test failure on line %d with \"%s\"\n", __LINE__, str); \
+			fclose(f); \
+		} while (0);
+		testsha1("abc",
+			0xa9, 0x99, 0x3e, 0x36, 0x47, 0x06, 0x81, 0x6a,
+			0xba, 0x3e, 0x25, 0x71, 0x78, 0x50, 0xc2, 0x6c,
+			0x9c, 0xd0, 0xd8, 0x9d
+		);
+		testsha1("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+			0x84, 0x98, 0x3e, 0x44, 0x1c, 0x3b, 0xd2, 0x6e,
+			0xba, 0xae, 0x4a, 0xa1, 0xf9, 0x51, 0x29, 0xe5,
+			0xe5, 0x46, 0x70, 0xf1
+		);
+		testsha1("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+			0xe1, 0x55, 0x6d, 0x14, 0x1b, 0x01, 0x58, 0xfd,
+			0x06, 0xd7, 0x27, 0xd3, 0x6d, 0x05, 0x96, 0x48,
+			0xe2, 0x4a, 0x16, 0x7e
+		);
+	}
 }
