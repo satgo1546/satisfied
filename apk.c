@@ -57,6 +57,37 @@ void utf8_to_utf16(uint16_t *dest, const char *src) {
 	}
 }
 
+size_t base64_btoa(void *dest, const void *src, size_t size) {
+	static const char base64_table[64] =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	char *a = dest;
+	const uint8_t *b = src;
+	uint32_t w = 0;
+	for (size_t i = 0; i < size; i++) {
+		w <<= 8;
+		w |= b[i];
+		if (i % 3 == 2) {
+			*a++ = base64_table[w >> 18];
+			*a++ = base64_table[(w >> 12) & 0x3f];
+			*a++ = base64_table[(w >> 6) & 0x3f];
+			*a++ = base64_table[w & 0x3f];
+			w = 0;
+		}
+	}
+	if (size % 3 == 1) {
+		*a++ = base64_table[w >> 2];
+		*a++ = base64_table[(w << 4) & 0x3f];
+		*a++ = '=';
+		*a++ = '=';
+	} else if (size % 3 == 2) {
+		*a++ = base64_table[w >> 10];
+		*a++ = base64_table[(w >> 4) & 0x3f];
+		*a++ = base64_table[(w << 2) & 0x3f];
+		*a++ = '=';
+	}
+	return a - (char *) dest;
+}
+
 /* See Figure 14-7 in Hacker's Delight (2nd ed.), or
    crc_reflected() in https://www.zlib.net/crc_v3.txt
    or Garry S. Brown's implementation e.g. in
@@ -141,6 +172,8 @@ unsigned char (*sha1(FILE *fp))[20] {
 
 struct zip_archive {
 	FILE *fp;
+	FILE *jar_manifest;
+	bool jar_signed;
 	struct {
 		long lfh_start;
 		long contents_start;
@@ -151,19 +184,28 @@ struct zip_archive {
 	bool file_began;
 };
 
-void zip_begin_archive_fp(struct zip_archive *this, FILE *fp) {
+void zip_begin_archive_fp(struct zip_archive *this, FILE *fp, const char *mode) {
+	assert(mode);
 	this->fp = fp;
 	this->file_count = 0;
 	this->file_began = false;
+	while (*mode) switch (*mode++) {
+	case 'J':
+		this->jar_signed = true;
+		// fall through
+	case 'j':
+		this->jar_manifest = tmpfile();
+		break;
+	}
 }
 
-void zip_begin_archive(struct zip_archive *this, const char *filename) {
+void zip_begin_archive(struct zip_archive *this, const char *filename, const char *mode) {
 	FILE *fp = fopen(filename, "wb+");
 	if (!fp) {
 		perror("fopen");
 		exit(EXIT_FAILURE);
 	}
-	zip_begin_archive_fp(this, fp);
+	zip_begin_archive_fp(this, fp, mode);
 }
 
 void zip_begin_file(struct zip_archive *this, const char *filename, const char *mode, size_t contents_alignment) {
@@ -214,6 +256,10 @@ void zip_begin_file(struct zip_archive *this, const char *filename, const char *
 	write16(this->fp, padding); // extra field length
 	fputs(filename, this->fp); // filename
 	while (padding--) fputc(0, this->fp); // extra field
+	if (this->jar_manifest && strncmp(filename, "META-INF/", 9) != 0) {
+		if (fprintf(this->jar_manifest, "Name: %.66s", filename) == 72) {
+		}
+	}
 	this->file_count++;
 }
 
@@ -227,16 +273,37 @@ void zip_end_file(struct zip_archive *this) {
 	write32(this->fp, crc); // CRC32
 	write32(this->fp, size); // compressed size
 	write32(this->fp, size); // uncompressed size
+	if (this->jar_manifest) {
+		fseek(this->fp, this->files[this->file_count - 1].contents_start, SEEK_SET);
+		char buffer[28];
+		base64_btoa(buffer, sha1(this->fp), 20);
+		fprintf(this->jar_manifest, "\r\nSHA1-Digest: %.28s\r\n\r\n", buffer);
+	}
 	fseek(this->fp, 0, SEEK_END);
 }
 
 void zip_end_archive(struct zip_archive *this) {
-	static unsigned char buffer[600];
 	assert(!this->file_began);
+	if (this->jar_manifest) {
+		zip_begin_file(this, "META-INF/MANIFEST.MF", "", 4); // Does 1 work?
+			fputs(
+				"Manifest-Version: 1.0\r\n" // Consider using \n.
+				"Created-By: 1.0 (Android)\r\n" // This line seems arbitrary.
+				"\r\n", this->fp
+			);
+			rewind(this->jar_manifest);
+			copy_file_fp(this->fp, this->jar_manifest);
+			fclose(this->jar_manifest);
+		zip_end_file(this);
+	}
+	if (this->jar_signed) {
+		// TBD.
+	}
 	long cd_start = ftell(this->fp);
 	for (size_t i = 0; i < this->file_count; i++) {
 		long lfh_size = this->files[i].contents_start - this->files[i].lfh_start;
 		fseek(this->fp, this->files[i].lfh_start, SEEK_SET);
+		unsigned char buffer[600];
 		fread(buffer, lfh_size, 1, this->fp);
 		fseek(this->fp, 0, SEEK_END);
 		fputs("PK\1\2", this->fp);
@@ -1062,7 +1129,7 @@ void axml_set_reference(struct axml_file *this, const char *ns, const char *name
 
 int main(int argc, char **argv) {
 	struct zip_archive f;
-	zip_begin_archive(&f, "slzapk-output.apk");
+	zip_begin_archive(&f, "slzapk-output.apk", "J");
 
 	zip_begin_file(&f, "AndroidManifest.xml", "b", 4);
 	{
