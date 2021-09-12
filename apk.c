@@ -88,6 +88,53 @@ size_t base64_btoa(void *dest, const void *src, size_t size) {
 	return a - (char *) dest;
 }
 
+size_t base64_atob(void *dest, const void *src, size_t size) {
+	unsigned char *b = dest;
+	const char *a = src;
+	uint32_t w = 0;
+	size_t count = 0;
+	for (size_t i = 0; i < size; i++) {
+		uint32_t t;
+		if (a[i] >= 'A' && a[i] <= 'Z') {
+			t = a[i] - 'A';
+		} else if (a[i] >= 'a' && a[i] <= 'z') {
+			t = a[i] - 'a' + 26;
+		} else if (a[i] >= '0' && a[i] <= '9') {
+			t = a[i] - '0' + 52;
+		} else if (a[i] == '+') {
+			t = 62;
+		} else if (a[i] == '/') {
+			t = 63;
+		} else if (a[i] == '=') {
+			break;
+		} else {
+			// Ignore unknown characters.
+			continue;
+		}
+		w <<= 6;
+		w |= t;
+		count++;
+		if (count % 4 == 0) {
+			*b++ = w >> 16;
+			*b++ = w >> 8;
+			*b++ = w;
+			w = 0;
+		}
+	}
+	switch (count % 4) {
+	case 1:
+		abort();
+	case 2:
+		*b++ = w >> 4;
+		break;
+	case 3:
+		*b++ = w >> 10;
+		*b++ = w >> 2;
+		break;
+	}
+	return b - (unsigned char *) dest;
+}
+
 /* See Figure 14-7 in Hacker's Delight (2nd ed.), or
    crc_reflected() in https://www.zlib.net/crc_v3.txt
    or Garry S. Brown's implementation e.g. in
@@ -182,11 +229,13 @@ struct zip_archive {
 	} files[100];
 	size_t file_count;
 	bool file_began;
+	bool jar_manifest_include_next_file;
 };
 
 void zip_begin_archive_fp(struct zip_archive *this, FILE *fp, const char *mode) {
 	assert(mode);
 	this->fp = fp;
+	this->jar_manifest = NULL;
 	this->file_count = 0;
 	this->file_began = false;
 	while (*mode) switch (*mode++) {
@@ -195,7 +244,15 @@ void zip_begin_archive_fp(struct zip_archive *this, FILE *fp, const char *mode) 
 		// fall through
 	case 'j':
 		this->jar_manifest = tmpfile();
+		this->jar_manifest_include_next_file = true;
 		break;
+	}
+	if (this->jar_manifest) {
+		fputs(
+			"Manifest-Version: 1.0\r\n" // Consider using \n.
+			"Created-By: 1.0 (Android)\r\n" // This line seems arbitrary.
+			"\r\n", this->jar_manifest
+		);
 	}
 }
 
@@ -256,8 +313,15 @@ void zip_begin_file(struct zip_archive *this, const char *filename, const char *
 	write16(this->fp, padding); // extra field length
 	fputs(filename, this->fp); // filename
 	while (padding--) fputc(0, this->fp); // extra field
-	if (this->jar_manifest && strncmp(filename, "META-INF/", 9) != 0) {
-		if (fprintf(this->jar_manifest, "Name: %.66s", filename) == 72) {
+	if (this->jar_manifest) {
+		if (strncmp(filename, "META-INF/", 9) == 0) {
+			this->jar_manifest_include_next_file = false;
+		}
+		if (this->jar_manifest_include_next_file) {
+			if (fprintf(this->jar_manifest, "Name: %.66s", filename) == 72) {
+				const char *next = filename + 66;
+				while (fprintf(this->jar_manifest, "\r\n %.71s", next) == 74) next += 71;
+			}
 		}
 	}
 	this->file_count++;
@@ -274,10 +338,13 @@ void zip_end_file(struct zip_archive *this) {
 	write32(this->fp, size); // compressed size
 	write32(this->fp, size); // uncompressed size
 	if (this->jar_manifest) {
-		fseek(this->fp, this->files[this->file_count - 1].contents_start, SEEK_SET);
-		char buffer[28];
-		base64_btoa(buffer, sha1(this->fp), 20);
-		fprintf(this->jar_manifest, "\r\nSHA1-Digest: %.28s\r\n\r\n", buffer);
+		if (this->jar_manifest_include_next_file) {
+			fseek(this->fp, this->files[this->file_count - 1].contents_start, SEEK_SET);
+			char buffer[28];
+			base64_btoa(buffer, sha1(this->fp), 20);
+			fprintf(this->jar_manifest, "\r\nSHA1-Digest: %.28s\r\n\r\n", buffer);
+		}
+		this->jar_manifest_include_next_file = true;
 	}
 	fseek(this->fp, 0, SEEK_END);
 }
@@ -286,19 +353,14 @@ void zip_end_archive(struct zip_archive *this) {
 	assert(!this->file_began);
 	if (this->jar_manifest) {
 		zip_begin_file(this, "META-INF/MANIFEST.MF", "", 4); // Does 1 work?
-			fputs(
-				"Manifest-Version: 1.0\r\n" // Consider using \n.
-				"Created-By: 1.0 (Android)\r\n" // This line seems arbitrary.
-				"\r\n", this->fp
-			);
 			rewind(this->jar_manifest);
 			copy_file_fp(this->fp, this->jar_manifest);
-			fclose(this->jar_manifest);
 		zip_end_file(this);
 	}
 	if (this->jar_signed) {
 		// TBD.
 	}
+	if (this->jar_manifest) fclose(this->jar_manifest);
 	long cd_start = ftell(this->fp);
 	for (size_t i = 0; i < this->file_count; i++) {
 		long lfh_size = this->files[i].contents_start - this->files[i].lfh_start;
