@@ -220,7 +220,7 @@ unsigned char (*sha1(FILE *fp))[20] {
 struct zip_archive {
 	FILE *fp;
 	FILE *jar_manifest;
-	bool jar_signed;
+	FILE *jar_signature;
 	struct {
 		long lfh_start;
 		long contents_start;
@@ -230,6 +230,7 @@ struct zip_archive {
 	size_t file_count;
 	bool file_began;
 	bool jar_manifest_include_next_file;
+	long jar_manifest_entry_start;
 };
 
 void zip_begin_archive_fp(struct zip_archive *this, FILE *fp, const char *mode) {
@@ -240,7 +241,7 @@ void zip_begin_archive_fp(struct zip_archive *this, FILE *fp, const char *mode) 
 	this->file_began = false;
 	while (*mode) switch (*mode++) {
 	case 'J':
-		this->jar_signed = true;
+		this->jar_signature = tmpfile();
 		// fall through
 	case 'j':
 		this->jar_manifest = tmpfile();
@@ -318,6 +319,7 @@ void zip_begin_file(struct zip_archive *this, const char *filename, const char *
 			this->jar_manifest_include_next_file = false;
 		}
 		if (this->jar_manifest_include_next_file) {
+			this->jar_manifest_entry_start = ftell(this->jar_manifest);
 			if (fprintf(this->jar_manifest, "Name: %.66s", filename) == 72) {
 				const char *next = filename + 66;
 				while (fprintf(this->jar_manifest, "\r\n %.71s", next) == 74) next += 71;
@@ -343,6 +345,14 @@ void zip_end_file(struct zip_archive *this) {
 			char buffer[28];
 			base64_btoa(buffer, sha1(this->fp), 20);
 			fprintf(this->jar_manifest, "\r\nSHA1-Digest: %.28s\r\n\r\n", buffer);
+			fseek(this->jar_manifest, this->jar_manifest_entry_start, SEEK_SET);
+			base64_btoa(buffer, sha1(this->jar_manifest), 20);
+			// Copy the entry from MANIFEST.MF to A.SF because “The major part of the [signature] file is similar to the manifest file.”
+			fseek(this->jar_manifest, this->jar_manifest_entry_start, SEEK_SET);
+			copy_file_fp(this->jar_signature, this->jar_manifest);
+			fseek(this->jar_signature, -32, SEEK_CUR);
+			fwrite(buffer, 1, sizeof(buffer), this->jar_signature);
+			fseek(this->jar_signature, 0, SEEK_END);
 		}
 		this->jar_manifest_include_next_file = true;
 	}
@@ -357,8 +367,32 @@ void zip_end_archive(struct zip_archive *this) {
 			copy_file_fp(this->fp, this->jar_manifest);
 		zip_end_file(this);
 	}
-	if (this->jar_signed) {
-		// TBD.
+	if (this->jar_signature) {
+		// The JAR file specification says that “Each individual entry must contain at least the digest of its corresponding entry in the manifest file.” What's the “corresponding entry”? By trial and error, I conclude that it refers to "Name: …\nSHA1-Digest: …\n\n".
+		zip_begin_file(this, "META-INF/A.SF", "", 4);
+			rewind(this->jar_manifest);
+			char buffer[28];
+			base64_btoa(buffer, sha1(this->jar_manifest), 20);
+			fprintf(this->fp,
+				"Signature-Version: 1.0\r\n"
+				"Created-By: 1.0 (Android)\r\n"
+				"SHA1-Digest-Manifest: %.28s\r\n"
+				// "X-Android-APK-Signed: 2\r\n"
+				"\r\n",
+				buffer
+			);
+			rewind(this->jar_signature);
+			copy_file_fp(this->fp, this->jar_signature);
+			fclose(this->jar_signature);
+		zip_end_file(this);
+		// SHA1withRSA is the only in-JAR signing method supported since Android 1.0. The other viable choice is SHA1withDSA, which is added in 2.3.
+		//   addSupportedSigAlg(OID_DIGEST_SHA1, OID_SIG_SHA1_WITH_RSA, InclusiveIntRange.from(0));
+		// https://android.googlesource.com/platform/tools/apksig/+/refs/heads/pie-release/src/main/java/com/android/apksig/internal/apk/v1/V1SchemeVerifier.java
+		// https://letsencrypt.org/docs/a-warm-welcome-to-asn1-and-der/
+		// Is CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown correct?
+		//   [no]:  y
+		zip_begin_file(this, "META-INF/A.RSA", "b", 4);
+		zip_end_file(this);
 	}
 	if (this->jar_manifest) fclose(this->jar_manifest);
 	long cd_start = ftell(this->fp);
