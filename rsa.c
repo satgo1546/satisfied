@@ -113,11 +113,11 @@ void fp_div(fp_int *u, const fp_int *v, fp_int *q) {
 	assert(v->used);
 
 	/* if a < b then q=0, r = a */
-	if (fp_cmp_mag(u, v) == FP_LT) return;
+	if (fp_cmp_mag(u, v) < 0) return;
 
 //puts("Slow");
 	if (q) {
-		fp_init(q);
+		fp_zero(q);
 		q->used = u->used + 2;
 	}
 	uint32_t v1;
@@ -167,7 +167,7 @@ void fp_div(fp_int *u, const fp_int *v, fp_int *q) {
 			c.dp[0] = qhat;
 			fp_mul(&c, v);
 			// D5
-			if (fp_cmp_mag(&a, &c) == FP_LT) {
+			if (fp_cmp_mag(&a, &c) < 0) {
 				// D6
 puts("WTF??");
 				qhat--;
@@ -209,7 +209,7 @@ void fp_montgomery_reduce(fp_int *a, const fp_int *m, fp_digit mp) {
 		for (int y = 0; y < pa; y++) {
 			fp_word t = (fp_word) mu * m->dp[y] + _c[0] + cy;
 			_c[0] = t;
-			cy = t >> DIGIT_BIT;
+			cy = t >> 32;
 			_c++;
 		}
 		while (cy) {
@@ -227,7 +227,7 @@ void fp_montgomery_reduce(fp_int *a, const fp_int *m, fp_digit mp) {
 	fp_clamp(a);
 
 	/* if A >= m then A = A - m */
-	if (fp_cmp_mag(a, m) != FP_LT) s_fp_sub(a, m, a);
+	if (fp_cmp_mag(a, m) >= 0) s_fp_sub(a, m, a);
 }
 
 /* timing resistant montgomery ladder based exptmod
@@ -299,7 +299,7 @@ void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
 			// add a MSB which is always 1 at this point
 			if (r && R->used != FP_SIZE - 1) R->dp[R->used++] = 1;
 
-			if (fp_cmp_mag(R, P) != FP_LT) s_fp_sub(R, P, R);
+			if (fp_cmp_mag(R, P) >= 0) s_fp_sub(R, P, R);
 		}
 	}
 
@@ -445,7 +445,7 @@ int main() {
 				.dp = {8, 8, 5},
 			};
 		}
-		fp_copy(&m,&c);
+		memcpy(&c,&m,sizeof(fp_int));
 		fp_div(&m,&n,&d);
 		if (!j) {
 			assert(m.dp[2] == 3 && m.dp[1] == 0x999999a1 && m.dp[0] == 0x999999a8);
