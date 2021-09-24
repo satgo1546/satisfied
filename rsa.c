@@ -6,43 +6,6 @@
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 #include "tfm.h"
-/*
-#include "src/fp_add_d.c"
-#include "src/fp_addmod.c"
-#include "src/fp_cmp_d.c"
-#include "src/fp_cnt_lsb.c"
-#include "src/fp_div_2.c"
-#include "src/fp_div_d.c"
-#include "src/fp_gcd.c"
-#include "src/fp_invmod.c"
-#include "src/fp_mod_d.c"
-#include "src/fp_mont_small.i"
-#include "src/fp_sqrmod.c"
-#include "src/fp_sub_d.c"
-#include "src/fp_submod.c"
-#include "src/fp_mulmod.c"
-#include "src/fp_mul_2.c"
-#include "src/fp_mul_comba.c"
-#include "src/fp_set.c"
-#include "src/fp_2expt.c"
-#include "src/fp_sqr.c"
-#include "src/fp_sqr_comba_generic.c"
-#include "src/fp_mod.c"
-#include "src/s_fp_sub.c"
-#include "src/fp_mul.c"
-#include "src/s_fp_add.c"
-#include "src/fp_div.c"
-*/
-
-#include "src/fp_add.c"
-#include "src/fp_cmp.c"
-#include "src/fp_div_2d.c"
-#include "src/fp_lshd.c"
-#include "src/fp_mod_2d.c"
-#include "src/fp_mul_2d.c"
-#include "src/fp_mul_d.c"
-#include "src/fp_rshd.c"
-#include "src/fp_sub.c"
 
 void fp_print(fp_int *a) {
 	assert(a->sign == 0 || a->sign == 1);
@@ -272,10 +235,8 @@ void fp_exptmod(fp_int *G, fp_int *X, fp_int *P, fp_int *Y) {
 	/* now set R[1] to G * R[0] mod m */
 	memcpy(&R[1], G, sizeof(fp_int));
 	fp_mod(&R[1], P, NULL);
-	//fp_correct_div(&R[1], P, NULL, &R[1]);
   fp_mul(&R[1], &R[0]);
   fp_mod(&R[1], P, NULL);
-	//fp_correct_div(&R[1], P, NULL, &R[1]);
 
 	/* for j = t-1 downto 0 do
         r_!k = R0*R1; r_k = r_k^2 */
@@ -310,125 +271,8 @@ void fp_exptmod(fp_int *G, fp_int *X, fp_int *P, fp_int *Y) {
 	memcpy(Y, R, sizeof(fp_int));
 }
 
-/* a/b => cb + d == a */
-void fp_correct_div(fp_int *a, fp_int *b, fp_int *c, fp_int *d) {
-	fp_int q, x, y, t1, t2;
-	int n, t, norm;
-
-	assert(!fp_iszero(b));
-
-	/* if a < b then q=0, r = a */
-	if (fp_cmp_mag(a, b) == FP_LT) {
-		if (d) fp_copy (a, d);
-		if (c) fp_zero (c);
-		return;
-	}
-
-	fp_init(&q);
-	q.used = a->used + 2;
-
-	fp_init(&t1);
-	fp_init(&t2);
-	fp_init_copy(&x, a);
-	fp_init_copy(&y, b);
-
-	/* normalize both x and y, ensure that y >= b/2, [b == 2**DIGIT_BIT] */
-	norm = fp_count_bits(&y) % 32;
-	if (norm < 31) {
-		norm = 31 - norm;
-		fp_mul_2d(&x, norm, &x);
-		fp_mul_2d(&y, norm, &y);
-	} else {
-		norm = 0;
-	}
-
-	/* note hac does 0 based, so if used==5 then its 0,1,2,3,4, e.g. use 4 */
-	n = x.used - 1;
-	t = y.used - 1;
-
-	/* while (x >= y*b**n-t) do { q[n-t] += 1; x -= y*b**{n-t} } */
-	fp_lshd(&y, n - t);                                             /* y = y*b**{n-t} */
-
-	while (fp_cmp_mag(&x, &y) != FP_LT) {
-		q.dp[n - t]++;
-		fp_sub(&x, &y, &x);
-	}
-
-	/* reset y by shifting it back down */
-	fp_rshd(&y, n - t);
-
-	/* step 3. for i from n down to (t + 1) */
-	for (int i = n; i >= t + 1; i--) {
-		if (i > x.used) continue;
-
-		/* step 3.1 if xi == yt then set q{i-t-1} to b-1,
-		 * otherwise set q{i-t-1} to (xi*b + x{i-1})/yt */
-		if (x.dp[i] == y.dp[t]) {
-			q.dp[i - t - 1] = ((((fp_word)1) << DIGIT_BIT) - 1);
-		} else {
-			fp_word tmp;
-			tmp = ((fp_word) x.dp[i]) << ((fp_word) DIGIT_BIT);
-			tmp |= ((fp_word) x.dp[i - 1]);
-			tmp /= ((fp_word) y.dp[t]);
-			q.dp[i - t - 1] = (fp_digit) (tmp);
-		}
-
-		/* while (q{i-t-1} * (yt * b + y{t-1})) > xi * b**2 + xi-1 * b + xi-2
-			 do q{i-t-1} -= 1; */
-		q.dp[i - t - 1]++;
-		do {
-			q.dp[i - t - 1]--;
-
-			/* find left hand */
-			fp_zero(&t1);
-			t1.dp[0] = (t - 1 < 0) ? 0 : y.dp[t - 1];
-			t1.dp[1] = y.dp[t];
-			t1.used = 2;
-			fp_mul_d(&t1, q.dp[i - t - 1], &t1);
-
-			// find right hand
-			t2.dp[0] = (i - 2 < 0) ? 0 : x.dp[i - 2];
-			t2.dp[1] = (i - 1 < 0) ? 0 : x.dp[i - 1];
-			t2.dp[2] = x.dp[i];
-			t2.used = 3;
-		} while (fp_cmp_mag(&t1, &t2) == FP_GT);
-
-		/* step 3.3 x = x - q{i-t-1} * y * b**{i-t-1} */
-		fp_mul_d(&y, q.dp[i - t - 1], &t1);
-		fp_lshd(&t1, i - t - 1);
-		fp_sub(&x, &t1, &x);
-
-		/* if x < 0 then { x = x + y*b**{i-t-1}; q{i-t-1} -= 1; } */
-		if (x.sign == FP_NEG) {
-			fp_copy(&y, &t1);
-			fp_lshd(&t1, i - t - 1);
-			fp_add(&x, &t1, &x);
-			q.dp[i - t - 1]--;
-		}
-	}
-
-	// now q is the quotient and x is the remainder [which we have to normalize]
-
-	// get sign before writing to c
-	x.sign = x.used == 0 ? FP_ZPOS : a->sign;
-
-	if (c) {
-		fp_clamp(&q);
-		fp_copy(&q, c);
-	}
-
-	if (d) {
-		fp_div_2d(&x, norm, &x, NULL);
-
-		// the following is a kludge, essentially we were seeing the right remainder but with excess digits that should have been zero
-		for (int i = b->used; i < x.used; i++) x.dp[i] = 0;
-		fp_clamp(&x);
-		fp_copy(&x, d);
-	}
-}
-
 void fp_mod(fp_int *u, fp_int *v, fp_int *q) {
-	assert(!fp_iszero(v));
+	assert(v->used);
 
 	/* if a < b then q=0, r = a */
 	if (fp_cmp_mag(u, v) == FP_LT) return;
@@ -470,7 +314,6 @@ void fp_mod(fp_int *u, fp_int *v, fp_int *q) {
 		qhat /= v1;
 //printf("%d %llx %llx\n", j, qhat, rhat);
 		while (qhat - 1 == UINT32_MAX || qhat * v2 > ((rhat << 32) | u3)) {
-//puts("!!!!!!");
 			qhat--;
 			rhat += v1;
 			if (rhat > UINT32_MAX) break;
@@ -491,7 +334,6 @@ void fp_mod(fp_int *u, fp_int *v, fp_int *q) {
 puts("WTF??");
 				qhat--;
 				s_fp_add(&a, v, &a);
-				//abort();
 			} else {
 				// D4
 				s_fp_sub(&a, &c, &a);
@@ -608,12 +450,15 @@ int main() {
 				.dp = {8, 8, 5},
 			};
 		}
-		fp_correct_div(&m,&n,&c,&e);
+		fp_copy(&m,&c);
 		fp_mod(&m,&n,&d);
-		//if (fp_cmp_mag(&c, &d) != 0) abort();
-		if (m.used != e.used) abort();
-		for (int i = 0; i < e.used; i++) if (m.dp[i] != e.dp[i]) abort();
-		if (!j) assert(m.dp[2] == 3 && m.dp[1] == 0x999999a1 && m.dp[0] == 0x999999a8);
+		if (!j) {
+			assert(m.dp[2] == 3 && m.dp[1] == 0x999999a1 && m.dp[0] == 0x999999a8);
+			assert(d.dp[0] == 0xcccccccb);
+		}
+		fp_mul(&n,&d);
+		s_fp_add(&c,&n,&c);
+		//if(!j)fp_print(&c);
 	}
 	printf("Done.\n");
 }
