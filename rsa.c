@@ -10,9 +10,9 @@
 void fp_print(const fp_int *a) {
 	printf("0x");
 	for (int i = FP_SIZE - 1; i >= a->used; i--) if (a->dp[i]) printf("WTF%d?", i);
-	for (int i = a->used - 1; i >= 0; i--) printf("%08x", a->dp[i]);
+	for (int i = a->used - 1; i >= 0; i--) printf("%08x%c", a->dp[i], i ? '_' : 'n');
 	if (a->used < 0 || a->used > FP_SIZE) printf("BAD USED %d", a->used);
-	printf("n\n");
+	putchar('\n');
 }
 
 int fp_count_bits(const fp_int *a) {
@@ -110,6 +110,7 @@ void fp_mul(fp_int *A, const fp_int *B) {
 }
 
 void fp_div(fp_int *u, const fp_int *v, fp_int *q) {
+	// This is Algorithm D in TAOCP, 4.3.1, with exercise 37 integrated.
 	assert(v->used);
 
 	/* if a < b then q=0, r = a */
@@ -456,4 +457,5 @@ int main() {
 		//if(!j)fp_print(&c);
 	}
 	printf("Done.\n");
+	return 0;
 }

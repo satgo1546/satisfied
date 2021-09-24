@@ -12,20 +12,27 @@ void write8(FILE *f, uint8_t value) {
 }
 
 void write16(FILE *f, uint16_t x) {
-	write8(f, x & 0xff);
+	write8(f, x);
 	write8(f, x >> 8);
 }
 
 void write16be(FILE *f, uint16_t x) {
 	write8(f, x >> 8);
-	write8(f, x & 0xff);
+	write8(f, x);
 }
 
 void write32(FILE *f, uint32_t x) {
-	write8(f, x & 0xff);
-	write8(f, (x >> 8) & 0xff);
-	write8(f, (x >> 16) & 0xff);
-	write8(f, (x >> 24) & 0xff);
+	write8(f, x);
+	write8(f, x >> 8);
+	write8(f, x >> 16);
+	write8(f, x >> 24);
+}
+
+void write32be(FILE *f, uint32_t x) {
+	write8(f, x >> 24);
+	write8(f, x >> 16);
+	write8(f, x >> 8);
+	write8(f, x);
 }
 
 // Write a string to file, padded to 8 bytes.

@@ -26,6 +26,7 @@ if errorlevel 1 goto :eof
 a
 echo apksigner
 rem If faced with an incompatible certificate error, do `adb shell pm uninstall com.example.hello` first. The useless "Settings" app provides no way to clean up an app completely.
-call %ANDROID_SDK_ROOT%\build-tools\25.0.3\apksigner sign --ks keystore.jks --ks-key-alias a --ks-pass pass:114514 --key-pass pass:114514 --out Hello.apk slzapk-output.apk
+::call %ANDROID_SDK_ROOT%\build-tools\25.0.3\apksigner sign --ks keystore.jks --ks-key-alias a --ks-pass pass:114514 --key-pass pass:114514 --out Hello.apk slzapk-output.apk
+call %ANDROID_SDK_ROOT%\build-tools\25.0.3\apksigner sign --key testkey.pk8 --cert testkey.x509.pem --v2-signing-enabled false --out Hello.apk slzapk-output.apk
 echo adb install
 for /f "skip=1 tokens=1" %%i in ('%ANDROID_SDK_ROOT%\platform-tools\adb devices') do %ANDROID_SDK_ROOT%\platform-tools\adb -s %%i install -r Hello.apk
