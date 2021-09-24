@@ -35,7 +35,7 @@ typedef ulong64            fp_word;
 
 typedef struct {
 	fp_digit dp[FP_SIZE];
-  int used, sign;
+  int used;
 } fp_int;
 
 /* initialize [or zero] an fp int */
@@ -47,14 +47,4 @@ typedef struct {
 #define fp_init_copy(a, b) fp_copy(b, a)
 
 /* clamp digits */
-#define fp_clamp(a)   { while ((a)->used && (a)->dp[(a)->used-1] == 0) --((a)->used); if ((a)->sign != FP_ZPOS) printf("NG used=%d sign=%d @ %s:%d\n", (a)->used,(a)->sign,__FILE__,__LINE__); (a)->sign = (a)->used ? (a)->sign : FP_ZPOS; }
-/* unsigned comparison */
-int fp_cmp_mag(fp_int *a, fp_int *b);
-void fp_mod(fp_int *a, fp_int *b, fp_int *c);
-
-/* computes x/R == x (mod N) via Montgomery Reduction */
-void fp_montgomery_reduce(fp_int *a, fp_int *m, fp_digit mp);
-
-/* VARIOUS LOW LEVEL STUFFS */
-void s_fp_add(fp_int *a, fp_int *b, fp_int *c);
-void s_fp_sub(fp_int *a, fp_int *b, fp_int *c);
+#define fp_clamp(a) while ((a)->used && (a)->dp[(a)->used-1] == 0) --((a)->used)

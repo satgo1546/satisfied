@@ -7,9 +7,7 @@
 
 #include "tfm.h"
 
-void fp_print(fp_int *a) {
-	assert(a->sign == 0 || a->sign == 1);
-	if (a->sign) putchar('-');
+void fp_print(const fp_int *a) {
 	printf("0x");
 	for (int i = FP_SIZE - 1; i >= a->used; i--) if (a->dp[i]) printf("WTF%d?", i);
 	for (int i = a->used - 1; i >= 0; i--) printf("%08x", a->dp[i]);
@@ -17,14 +15,14 @@ void fp_print(fp_int *a) {
 	printf("n\n");
 }
 
-int fp_count_bits(fp_int *a) {
+int fp_count_bits(const fp_int *a) {
 	int r = 0;
 	/* take the last digit and count the bits in it */
 	for (fp_digit q = a->dp[a->used - 1]; q; q >>= 1) r++;
 	return r;
 }
 
-int fp_cmp_mag(fp_int *a, fp_int *b) {
+int fp_cmp_mag(const fp_int *a, const fp_int *b) {
 	if (a->used > b->used) return 1;
 	if (a->used < b->used) return -1;
 	for (int x = a->used - 1; x >= 0; x--) {
@@ -34,7 +32,7 @@ int fp_cmp_mag(fp_int *a, fp_int *b) {
 	return 0;
 }
 
-void s_fp_add(fp_int *a, fp_int *b, fp_int *c) {
+void s_fp_add(const fp_int *a, const fp_int *b, fp_int *c) {
 	const int oldused = c->used;
 	c->used = MAX(a->used, b->used);
 	fp_word t = 0;
@@ -49,7 +47,7 @@ void s_fp_add(fp_int *a, fp_int *b, fp_int *c) {
 }
 
 // unsigned subtraction ||a|| >= ||b|| ALWAYS!
-void s_fp_sub(fp_int *a, fp_int *b, fp_int *c) {
+void s_fp_sub(const fp_int *a, const fp_int *b, fp_int *c) {
 	const int oldused = c->used;
 	c->used = a->used;
 	fp_word t = 0;
@@ -65,7 +63,7 @@ void s_fp_sub(fp_int *a, fp_int *b, fp_int *c) {
 
 /* generic PxQ multiplier */
 // a *= b
-void fp_mul(fp_int *A, fp_int *B) {
+void fp_mul(fp_int *A, const fp_int *B) {
 	int old_used = A->used;
     /* pick a comba (unrolled 4/8/16/32 x or rolled) based on the size
        of the largest input.  We also want to avoid doing excess mults if the
@@ -111,167 +109,7 @@ void fp_mul(fp_int *A, fp_int *B) {
 	for (int y = A->used; y < old_used; y++) A->dp[y] = 0;
 }
 
-/* computes x/R == x (mod N) via Montgomery Reduction */
-void fp_montgomery_reduce(fp_int *a, fp_int *m, fp_digit mp) {
-	fp_digit c[FP_SIZE], *_c, *tmpm, mu;
-	int x;
-
-	// bail if too large
-	assert(m->used <= FP_SIZE / 2);
-
-	// zero the buff
-	memset(c, 0, sizeof(c));
-	const int pa = m->used;
-
-	// copy the input
-	const int oldused = a->used;
-	for (x = 0; x < oldused; x++) c[x] = a->dp[x];
-
-	for (x = 0; x < pa; x++) {
-		fp_digit cy = 0;
-		/* get Mu for this round */
-		mu = c[x] * mp;
-		_c = c + x;
-		tmpm = m->dp;
-
-		for (int y = 0; y < pa; y++) {
-			fp_word t = (fp_word) mu * *tmpm++ + _c[0] + cy;
-			_c[0] = t;
-			cy = t >> DIGIT_BIT;
-			_c++;
-		}
-		while (cy) {
-			fp_digit t = _c[0] += cy;
-			cy = t < cy;
-			_c++;
-		}
-	}
-
-	/* now copy out */
-	_c = c + pa;
-	tmpm = a->dp;
-	for (x = 0; x < pa + 1; x++) *tmpm++ = *_c++;
-	for (; x < oldused; x++) *tmpm++ = 0;
-	a->used = pa + 1;
-	fp_clamp(a);
-
-	/* if A >= m then A = A - m */
-	if (fp_cmp_mag(a, m) != FP_LT) s_fp_sub(a, m, a);
-}
-
-/* timing resistant montgomery ladder based exptmod
-   Based on work by Marc Joye, Sung-Ming Yen, "The Montgomery Powering Ladder", Cryptographic Hardware and Embedded Systems, CHES 2002 */
-/* d = a**b (mod c) */
-void fp_exptmod(fp_int *G, fp_int *X, fp_int *P, fp_int *Y) {
-	fp_int R[2];
-	fp_digit mp;
-	int bitcnt, digidx, y;
-
-	/* now setup montgomery */
-	{
-		/* fast inversion mod 2**k
- * Based on the fact that
- * XA = 1 (mod 2**n)  =>  (X(2-XA)) A = 1 (mod 2**2n)
- *                    =>  2*X*A - X*X*A*A = 1
- *                    =>  2*(1) - (1)     = 1
- */
-		uint32_t b = P->dp[0];
-
-		assert(b & 1);
-
-		fp_digit x = (((b + 2) & 4) << 1) + b; /* here x*a==1 mod 2**4 */
-		x *= 2 - b * x; /* here x*a==1 mod 2**8 */
-		x *= 2 - b * x; /* here x*a==1 mod 2**16 */
-		x *= 2 - b * x; /* here x*a==1 mod 2**32 */
-
-		/* rho = -1/m mod b */
-		mp = ((fp_word) 1 << 32) - x;
-	}
-
-	memset(R, 0, sizeof(R));
-
-	/* now we need R mod m */
-	// computes a = B**n mod b without division or multiplication useful for normalizing numbers in a Montgomery system.
-	{
-		/* how many bits of last digit does P use */
-		int bits = fp_count_bits(P);
-
-		/* compute A = B^(n-1) * 2^(bits-1) */
-		if (P->used > 1) {
-			R->used = P->used;
-			R->dp[P->used - 1] = (fp_digit) 1 << (bits - 1);
-		} else {
-			R->used = 1;
-			R->dp[0] = 1;
-			bits = 1;
-		}
-
-		/* now compute C = A * B mod P */
-		for (int x = bits - 1; x < 32; x++) {
-			// R *= 2
-			fp_digit r = 0;
-
-			/* carry */
-			for (int x = 0; x < R->used; x++) {
-				/* get what will be the *next* carry bit from the MSB of the current digit */
-				fp_digit rr = R->dp[x] >> 31;
-
-				/* now shift up this digit, add in the carry [from the previous] */
-				R->dp[x] <<= 1;
-				R->dp[x] |= r;
-
-				/* copy the carry that would be from the source digit into the next iteration */
-				r = rr;
-			}
-
-			// new leading digit?
-			// add a MSB which is always 1 at this point
-			if (r && R->used != FP_SIZE - 1) R->dp[R->used++] = 1;
-
-			if (fp_cmp_mag(R, P) != FP_LT) s_fp_sub(R, P, R);
-		}
-	}
-
-	/* now set R[1] to G * R[0] mod m */
-	memcpy(&R[1], G, sizeof(fp_int));
-	fp_mod(&R[1], P, NULL);
-  fp_mul(&R[1], &R[0]);
-  fp_mod(&R[1], P, NULL);
-
-	/* for j = t-1 downto 0 do
-        r_!k = R0*R1; r_k = r_k^2 */
-
-	/* set initial mode and bit cnt */
-	bitcnt = 1;
-	uint32_t buf = 0;
-	digidx = X->used - 1;
-
-	for (;;) {
-		// grab next digit as required
-		if (!--bitcnt) {
-			// if digidx == -1 we are out of digits so break
-			if (digidx == -1) break;
-			// read next digit and reset bitcnt
-			buf = X->dp[digidx--];
-			bitcnt = 32;
-		}
-
-		// grab the next msb from the exponent
-		y = (buf >> 31) & 1;
-		buf <<= 1;
-
-		// do ops
-		fp_mul(&R[y ^ 1], &R[y]);
-		fp_montgomery_reduce(&R[y ^ 1], P, mp);
-		fp_mul(&R[y], &R[y]);
-		fp_montgomery_reduce(&R[y], P, mp);
-	}
-
-	fp_montgomery_reduce(&R[0], P, mp);
-	memcpy(Y, R, sizeof(fp_int));
-}
-
-void fp_mod(fp_int *u, fp_int *v, fp_int *q) {
+void fp_div(fp_int *u, const fp_int *v, fp_int *q) {
 	assert(v->used);
 
 	/* if a < b then q=0, r = a */
@@ -344,6 +182,164 @@ puts("WTF??");
 	}
 	fp_clamp(u);
 	if (q) fp_clamp(q);
+}
+
+/* computes x/R == x (mod N) via Montgomery Reduction */
+void fp_montgomery_reduce(fp_int *a, const fp_int *m, fp_digit mp) {
+	fp_digit c[FP_SIZE], *_c, mu;
+	int x;
+
+	// bail if too large
+	assert(m->used <= FP_SIZE / 2);
+
+	// zero the buff
+	memset(c, 0, sizeof(c));
+	const int pa = m->used;
+
+	// copy the input
+	const int oldused = a->used;
+	for (x = 0; x < oldused; x++) c[x] = a->dp[x];
+
+	for (x = 0; x < pa; x++) {
+		fp_digit cy = 0;
+		/* get Mu for this round */
+		mu = c[x] * mp;
+		_c = c + x;
+
+		for (int y = 0; y < pa; y++) {
+			fp_word t = (fp_word) mu * m->dp[y] + _c[0] + cy;
+			_c[0] = t;
+			cy = t >> DIGIT_BIT;
+			_c++;
+		}
+		while (cy) {
+			fp_digit t = _c[0] += cy;
+			cy = t < cy;
+			_c++;
+		}
+	}
+
+	/* now copy out */
+	_c = c + pa;
+	for (x = 0; x < pa + 1; x++) a->dp[x] = *_c++;
+	for (; x < oldused; x++) a->dp[x] = 0;
+	a->used = pa + 1;
+	fp_clamp(a);
+
+	/* if A >= m then A = A - m */
+	if (fp_cmp_mag(a, m) != FP_LT) s_fp_sub(a, m, a);
+}
+
+/* timing resistant montgomery ladder based exptmod
+   Based on work by Marc Joye, Sung-Ming Yen, "The Montgomery Powering Ladder", Cryptographic Hardware and Embedded Systems, CHES 2002 */
+/* d = a**b (mod c) */
+void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
+	fp_int R[2];
+	fp_digit mp;
+	int bitcnt, digidx, y;
+
+	/* now setup montgomery */
+	{
+		/* fast inversion mod 2**k
+ * Based on the fact that
+ * XA = 1 (mod 2**n)  =>  (X(2-XA)) A = 1 (mod 2**2n)
+ *                    =>  2*X*A - X*X*A*A = 1
+ *                    =>  2*(1) - (1)     = 1
+ */
+		uint32_t b = P->dp[0];
+
+		assert(b & 1);
+
+		fp_digit x = (((b + 2) & 4) << 1) + b; /* here x*a==1 mod 2**4 */
+		x *= 2 - b * x; /* here x*a==1 mod 2**8 */
+		x *= 2 - b * x; /* here x*a==1 mod 2**16 */
+		x *= 2 - b * x; /* here x*a==1 mod 2**32 */
+
+		/* rho = -1/m mod b */
+		mp = ((fp_word) 1 << 32) - x;
+	}
+
+	memset(R, 0, sizeof(R));
+
+	/* now we need R mod m */
+	// computes a = B**n mod b without division or multiplication useful for normalizing numbers in a Montgomery system.
+	{
+		/* how many bits of last digit does P use */
+		int bits = fp_count_bits(P);
+
+		/* compute A = B^(n-1) * 2^(bits-1) */
+		if (P->used > 1) {
+			R->used = P->used;
+			R->dp[P->used - 1] = (fp_digit) 1 << (bits - 1);
+		} else {
+			R->used = 1;
+			R->dp[0] = 1;
+			bits = 1;
+		}
+
+		/* now compute C = A * B mod P */
+		for (int x = bits - 1; x < 32; x++) {
+			// R *= 2
+			fp_digit r = 0;
+
+			/* carry */
+			for (int x = 0; x < R->used; x++) {
+				/* get what will be the *next* carry bit from the MSB of the current digit */
+				fp_digit rr = R->dp[x] >> 31;
+
+				/* now shift up this digit, add in the carry [from the previous] */
+				R->dp[x] <<= 1;
+				R->dp[x] |= r;
+
+				/* copy the carry that would be from the source digit into the next iteration */
+				r = rr;
+			}
+
+			// new leading digit?
+			// add a MSB which is always 1 at this point
+			if (r && R->used != FP_SIZE - 1) R->dp[R->used++] = 1;
+
+			if (fp_cmp_mag(R, P) != FP_LT) s_fp_sub(R, P, R);
+		}
+	}
+
+	/* now set R[1] to G * R[0] mod m */
+	memcpy(&R[1], G, sizeof(fp_int));
+	fp_div(&R[1], P, NULL);
+  fp_mul(&R[1], &R[0]);
+  fp_div(&R[1], P, NULL);
+
+	/* for j = t-1 downto 0 do
+        r_!k = R0*R1; r_k = r_k^2 */
+
+	/* set initial mode and bit cnt */
+	bitcnt = 1;
+	uint32_t buf = 0;
+	digidx = X->used - 1;
+
+	for (;;) {
+		// grab next digit as required
+		if (!--bitcnt) {
+			// if digidx == -1 we are out of digits so break
+			if (digidx == -1) break;
+			// read next digit and reset bitcnt
+			buf = X->dp[digidx--];
+			bitcnt = 32;
+		}
+
+		// grab the next msb from the exponent
+		y = (buf >> 31) & 1;
+		buf <<= 1;
+
+		// do ops
+		fp_mul(&R[y ^ 1], &R[y]);
+		fp_montgomery_reduce(&R[y ^ 1], P, mp);
+		fp_mul(&R[y], &R[y]);
+		fp_montgomery_reduce(&R[y], P, mp);
+	}
+
+	fp_montgomery_reduce(&R[0], P, mp);
+	memcpy(Y, R, sizeof(fp_int));
 }
 
 int main() {
@@ -432,7 +428,6 @@ int main() {
 
 	printf("Testing. Rand max = %d.\n", RAND_MAX);
 	for(int j=0;j<1234;j++){
-		m.sign=n.sign=0;
 		if (j){
 			m.used = rand() % 39+1;
 			for (int i = 0; i < m.used; i++) m.dp[i] = (unsigned) rand() << 18 | rand();
@@ -451,7 +446,7 @@ int main() {
 			};
 		}
 		fp_copy(&m,&c);
-		fp_mod(&m,&n,&d);
+		fp_div(&m,&n,&d);
 		if (!j) {
 			assert(m.dp[2] == 3 && m.dp[1] == 0x999999a1 && m.dp[0] == 0x999999a8);
 			assert(d.dp[0] == 0xcccccccb);
