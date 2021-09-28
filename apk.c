@@ -223,7 +223,7 @@ unsigned char (*sha1(FILE *fp))[20] {
 // The following private key “testkey.pk8” is public.
 // https://android.googlesource.com/platform/build/+/refs/heads/master/target/product/security/
 const struct {
-	fp_int modulus, e, d;
+	struct mpn modulus, e, d;
 } apk_testkey = {
 	.modulus = {{
 		0x6afee91f, 0x7fa31d5b, 0x38a0b217, 0x99df9bae,
@@ -539,14 +539,14 @@ void zip_end_archive(struct zip_archive *this) {
 			fwrite(apk_testkey_certificate_chain, 1, sizeof(apk_testkey_certificate_chain), this->fp);
 			// Generate the signature according to RSASSA-PKCS1-V1_5-SIGN with SHA-1.
 			// https://datatracker.ietf.org/doc/html/rfc8017#section-8.2.1
-			fp_int x = {{[5] = 0x05000414, 0x0e03021a, 0x0906052b, 0x00302130, [63] = 0x0001ffff}, 64};
+			struct mpn x = {{[5] = 0x05000414, 0x0e03021a, 0x0906052b, 0x00302130, [63] = 0x0001ffff}, 64};
 			for (size_t i = 0; i < 5; i++) {
 				size_t j = 16 - i * 4;
 				x.dp[i] = (signature_digest[j] << 24) | (signature_digest[j + 1] << 16)
 					| (signature_digest[j + 2] << 8) | signature_digest[j + 3];
 			}
 			for (size_t i = 9; i < 63; i++) x.dp[i] = 0xffffffff;
-			fp_exptmod(&x, &apk_testkey.d, &apk_testkey.modulus, &x);
+			mpn_powmod(&x, &apk_testkey.d, &apk_testkey.modulus, &x);
 			for (size_t i = 63; i != SIZE_MAX; i--) write32be(this->fp, x.dp[i]);
 		zip_end_file(this);
 	}

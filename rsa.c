@@ -2,12 +2,23 @@
 #include <stdint.h>
 #include <time.h>
 /* TomsFastMath, a fast ISO C bignum library. -- Tom St Denis */
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
-#define MIN(x, y) ((x) < (y) ? (x) : (y))
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <limits.h>
 
-#include "tfm.h"
+#define FP_SIZE 140
+struct mpn {
+	uint32_t dp[FP_SIZE];
+	int used;
+};
 
-void fp_print(const fp_int *a) {
+#define mpn_clamp(a) while ((a)->used && (a)->dp[(a)->used-1] == 0) --((a)->used)
+#define max(x, y) ((x) > (y) ? (x) : (y))
+#define min(x, y) ((x) < (y) ? (x) : (y))
+
+void mpn_print(const struct mpn *a) {
 	printf("0x");
 	for (int i = FP_SIZE - 1; i >= a->used; i--) if (a->dp[i]) printf("WTF%d?", i);
 	for (int i = a->used - 1; i >= 0; i--) printf("%08x%c", a->dp[i], i ? '_' : 'n');
@@ -15,14 +26,14 @@ void fp_print(const fp_int *a) {
 	putchar('\n');
 }
 
-int fp_count_bits(const fp_int *a) {
+int mpn_count_bits(const struct mpn *a) {
 	int r = 0;
 	/* take the last digit and count the bits in it */
-	for (fp_digit q = a->dp[a->used - 1]; q; q >>= 1) r++;
+	for (uint32_t q = a->dp[a->used - 1]; q; q >>= 1) r++;
 	return r;
 }
 
-int fp_cmp_mag(const fp_int *a, const fp_int *b) {
+int mpn_cmp(const struct mpn *a, const struct mpn *b) {
 	if (a->used > b->used) return 1;
 	if (a->used < b->used) return -1;
 	for (int x = a->used - 1; x >= 0; x--) {
@@ -32,38 +43,38 @@ int fp_cmp_mag(const fp_int *a, const fp_int *b) {
 	return 0;
 }
 
-void s_fp_add(const fp_int *a, const fp_int *b, fp_int *c) {
+void mpn_add(const struct mpn *a, const struct mpn *b, struct mpn *c) {
 	const int oldused = c->used;
-	c->used = MAX(a->used, b->used);
-	fp_word t = 0;
+	c->used = max(a->used, b->used);
+	uint64_t t = 0;
 	for (int x = 0; x < c->used; x++) {
-		t += (fp_word) a->dp[x] + b->dp[x];
+		t += (uint64_t) a->dp[x] + b->dp[x];
 		c->dp[x] = t;
 		t >>= 32;
 	}
 	if (t && c->used < FP_SIZE) c->dp[c->used++] = t;
 	for (int x = c->used; x < oldused; x++) c->dp[x] = 0;
-	fp_clamp(c);
+	mpn_clamp(c);
 }
 
 // unsigned subtraction ||a|| >= ||b|| ALWAYS!
-void s_fp_sub(const fp_int *a, const fp_int *b, fp_int *c) {
+void mpn_sub(const struct mpn *a, const struct mpn *b, struct mpn *c) {
 	const int oldused = c->used;
 	c->used = a->used;
-	fp_word t = 0;
+	uint64_t t = 0;
 	for (int x = 0; x < c->used; x++) {
-		t = (fp_word) a->dp[x] - b->dp[x] - t;
+		t = (uint64_t) a->dp[x] - b->dp[x] - t;
 		c->dp[x] = t;
 		t >>= 32;
 		t &= 1;
 	}
 	for (int x = c->used; x < oldused; x++) c->dp[x] = 0;
-	fp_clamp(c);
+	mpn_clamp(c);
 }
 
 /* generic PxQ multiplier */
 // a *= b
-void fp_mul(fp_int *A, const fp_int *B) {
+void mpn_mul(struct mpn *A, const struct mpn *B) {
 	int old_used = A->used;
     /* pick a comba (unrolled 4/8/16/32 x or rolled) based on the size
        of the largest input.  We also want to avoid doing excess mults if the
@@ -73,26 +84,26 @@ void fp_mul(fp_int *A, const fp_int *B) {
 	int pa = A->used + B->used;
 	if (pa >= FP_SIZE) pa = FP_SIZE - 1;
 
-	fp_int tmp;
-	fp_int *dst = &tmp;
-	fp_zero(dst);
+	struct mpn tmp;
+	struct mpn *dst = &tmp;
+	memset(dst, 0, sizeof(struct mpn));
 
-	fp_digit c0 = 0, c1 = 0, c2 = 0;
+	uint32_t c0 = 0, c1 = 0, c2 = 0;
 	for (int ix = 0; ix < pa; ix++) {
 		/* get offsets into the two bignums */
-		int ty = MIN(ix, B->used - 1);
+		int ty = min(ix, B->used - 1);
 		int tx = ix - ty;
 
 		/* this is the number of times the loop will iterate, essentially it's
 			 while (tx++ < a->used && ty-- >= 0) { ... } */
-		const int iy = MIN(A->used - tx, ty + 1);
+		const int iy = min(A->used - tx, ty + 1);
 
 		/* execute loop */
 		c0 = c1;
 		c1 = c2;
 		c2 = 0;
 		for (int iz = 0; iz < iy; iz++) {
-			fp_word t = (fp_word) A->dp[tx++] * B->dp[ty--] + c0;
+			uint64_t t = (uint64_t) A->dp[tx++] * B->dp[ty--] + c0;
 			c0 = t;
 			t >>= 32;
 			c1 = t += c1;
@@ -104,21 +115,20 @@ void fp_mul(fp_int *A, const fp_int *B) {
 	}
 
 	dst->used = pa;
-	fp_clamp(dst);
-	memcpy(A, &tmp, sizeof(fp_int));
+	mpn_clamp(dst);
+	memcpy(A, &tmp, sizeof(struct mpn));
 	for (int y = A->used; y < old_used; y++) A->dp[y] = 0;
 }
 
-void fp_div(fp_int *u, const fp_int *v, fp_int *q) {
+void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 	// This is Algorithm D in TAOCP, 4.3.1, with exercise 37 integrated.
 	assert(v->used);
 
 	/* if a < b then q=0, r = a */
-	if (fp_cmp_mag(u, v) < 0) return;
+	if (mpn_cmp(u, v) < 0) return;
 
-//puts("Slow");
 	if (q) {
-		fp_zero(q);
+		memset(q, 0, sizeof(struct mpn));
 		q->used = u->used + 2;
 	}
 	uint32_t v1;
@@ -159,35 +169,34 @@ void fp_div(fp_int *u, const fp_int *v, fp_int *q) {
 		}
 		// D4
 		{
-			fp_int a, c;
-			fp_zero(&a);
-			fp_zero(&c);
+			struct mpn a = {0}, c = {0};
 			a.used = v->used + 1;
 			c.used = 1;
 			for (int i = 0; i < a.used; i++) a.dp[i] = u->dp[i + j];
 			c.dp[0] = qhat;
-			fp_mul(&c, v);
+			mpn_mul(&c, v);
 			// D5
-			if (fp_cmp_mag(&a, &c) < 0) {
+			if (mpn_cmp(&a, &c) < 0) {
 				// D6
 puts("WTF??");
+// TODO
 				qhat--;
-				s_fp_add(&a, v, &a);
+				mpn_add(&a, v, &a);
 			} else {
 				// D4
-				s_fp_sub(&a, &c, &a);
+				mpn_sub(&a, &c, &a);
 			}
 			for (int i = 0; i <= v->used; i++) u->dp[i + j] = a.dp[i];
 			if (q) q->dp[j] = qhat;
 		}
 	}
-	fp_clamp(u);
-	if (q) fp_clamp(q);
+	mpn_clamp(u);
+	if (q) mpn_clamp(q);
 }
 
 /* computes x/R == x (mod N) via Montgomery Reduction */
-void fp_montgomery_reduce(fp_int *a, const fp_int *m, fp_digit mp) {
-	fp_digit c[FP_SIZE], *_c, mu;
+void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
+	uint32_t c[FP_SIZE], *_c, mu;
 	int x;
 
 	// bail if too large
@@ -202,19 +211,19 @@ void fp_montgomery_reduce(fp_int *a, const fp_int *m, fp_digit mp) {
 	for (x = 0; x < oldused; x++) c[x] = a->dp[x];
 
 	for (x = 0; x < pa; x++) {
-		fp_digit cy = 0;
+		uint32_t cy = 0;
 		/* get Mu for this round */
 		mu = c[x] * mp;
 		_c = c + x;
 
 		for (int y = 0; y < pa; y++) {
-			fp_word t = (fp_word) mu * m->dp[y] + _c[0] + cy;
+			uint64_t t = (uint64_t) mu * m->dp[y] + _c[0] + cy;
 			_c[0] = t;
 			cy = t >> 32;
 			_c++;
 		}
 		while (cy) {
-			fp_digit t = _c[0] += cy;
+			uint32_t t = _c[0] += cy;
 			cy = t < cy;
 			_c++;
 		}
@@ -225,18 +234,17 @@ void fp_montgomery_reduce(fp_int *a, const fp_int *m, fp_digit mp) {
 	for (x = 0; x < pa + 1; x++) a->dp[x] = *_c++;
 	for (; x < oldused; x++) a->dp[x] = 0;
 	a->used = pa + 1;
-	fp_clamp(a);
+	mpn_clamp(a);
 
 	/* if A >= m then A = A - m */
-	if (fp_cmp_mag(a, m) >= 0) s_fp_sub(a, m, a);
+	if (mpn_cmp(a, m) >= 0) mpn_sub(a, m, a);
 }
 
-/* timing resistant montgomery ladder based exptmod
-   Based on work by Marc Joye, Sung-Ming Yen, "The Montgomery Powering Ladder", Cryptographic Hardware and Embedded Systems, CHES 2002 */
-/* d = a**b (mod c) */
-void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
-	fp_int R[2];
-	fp_digit mp;
+// montgomery ladder based G^X mod P → Y
+// Based on work by Marc Joye, Sung-Ming Yen, "The Montgomery Powering Ladder", Cryptographic Hardware and Embedded Systems, CHES 2002 */
+void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, struct mpn *Y) {
+	struct mpn R[2];
+	uint32_t mp;
 	int bitcnt, digidx, y;
 
 	/* now setup montgomery */
@@ -251,13 +259,13 @@ void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
 
 		assert(b & 1);
 
-		fp_digit x = (((b + 2) & 4) << 1) + b; /* here x*a==1 mod 2**4 */
+		uint32_t x = (((b + 2) & 4) << 1) + b; /* here x*a==1 mod 2**4 */
 		x *= 2 - b * x; /* here x*a==1 mod 2**8 */
 		x *= 2 - b * x; /* here x*a==1 mod 2**16 */
 		x *= 2 - b * x; /* here x*a==1 mod 2**32 */
 
 		/* rho = -1/m mod b */
-		mp = ((fp_word) 1 << 32) - x;
+		mp = ((uint64_t) 1 << 32) - x;
 	}
 
 	memset(R, 0, sizeof(R));
@@ -266,12 +274,12 @@ void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
 	// computes a = B**n mod b without division or multiplication useful for normalizing numbers in a Montgomery system.
 	{
 		/* how many bits of last digit does P use */
-		int bits = fp_count_bits(P);
+		int bits = mpn_count_bits(P);
 
 		/* compute A = B^(n-1) * 2^(bits-1) */
 		if (P->used > 1) {
 			R->used = P->used;
-			R->dp[P->used - 1] = (fp_digit) 1 << (bits - 1);
+			R->dp[P->used - 1] = (uint32_t) 1 << (bits - 1);
 		} else {
 			R->used = 1;
 			R->dp[0] = 1;
@@ -281,12 +289,12 @@ void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
 		/* now compute C = A * B mod P */
 		for (int x = bits - 1; x < 32; x++) {
 			// R *= 2
-			fp_digit r = 0;
+			uint32_t r = 0;
 
 			/* carry */
 			for (int x = 0; x < R->used; x++) {
 				/* get what will be the *next* carry bit from the MSB of the current digit */
-				fp_digit rr = R->dp[x] >> 31;
+				uint32_t rr = R->dp[x] >> 31;
 
 				/* now shift up this digit, add in the carry [from the previous] */
 				R->dp[x] <<= 1;
@@ -300,15 +308,15 @@ void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
 			// add a MSB which is always 1 at this point
 			if (r && R->used != FP_SIZE - 1) R->dp[R->used++] = 1;
 
-			if (fp_cmp_mag(R, P) >= 0) s_fp_sub(R, P, R);
+			if (mpn_cmp(R, P) >= 0) mpn_sub(R, P, R);
 		}
 	}
 
 	/* now set R[1] to G * R[0] mod m */
-	memcpy(&R[1], G, sizeof(fp_int));
-	fp_div(&R[1], P, NULL);
-  fp_mul(&R[1], &R[0]);
-  fp_div(&R[1], P, NULL);
+	memcpy(&R[1], G, sizeof(struct mpn));
+	mpn_div(&R[1], P, NULL);
+  mpn_mul(&R[1], &R[0]);
+  mpn_div(&R[1], P, NULL);
 
 	/* for j = t-1 downto 0 do
         r_!k = R0*R1; r_k = r_k^2 */
@@ -333,18 +341,18 @@ void fp_exptmod(const fp_int *G, const fp_int *X, const fp_int *P, fp_int *Y) {
 		buf <<= 1;
 
 		// do ops
-		fp_mul(&R[y ^ 1], &R[y]);
-		fp_montgomery_reduce(&R[y ^ 1], P, mp);
-		fp_mul(&R[y], &R[y]);
-		fp_montgomery_reduce(&R[y], P, mp);
+		mpn_mul(&R[y ^ 1], &R[y]);
+		mpn_redc(&R[y ^ 1], P, mp);
+		mpn_mul(&R[y], &R[y]);
+		mpn_redc(&R[y], P, mp);
 	}
 
-	fp_montgomery_reduce(&R[0], P, mp);
-	memcpy(Y, R, sizeof(fp_int));
+	mpn_redc(&R[0], P, mp);
+	memcpy(Y, R, sizeof(struct mpn));
 }
 
 int main() {
-	fp_int e = {{65537}, 1}, n = {{
+	struct mpn e = {{65537}, 1}, n = {{
 		0x270ec5e9, 0x2fe44161, 0x512b81cc, 0x6f7086ce,
 		0x086fdae5, 0xa8a17c97, 0x3825be3f, 0xfcbd320d,
 		0x573c7ec1, 0x2e791647, 0x594d4a4f, 0xf8eee2bd,
@@ -374,13 +382,13 @@ int main() {
 	}, 32}, e_m;
 
 	/* test it */
-	fp_exptmod(&m, &e, &n, &e_m);
+	mpn_powmod(&m, &e, &n, &e_m);
 	if (memcmp(&e_m.dp, &c.dp, sizeof(c.dp)) != 0) {
 		printf("Encrypted text not equal\n");
 	}
 
 	/* read in the parameters */
-	n = (fp_int) {{
+	n = (struct mpn) {{
 		0x15a9773f, 0xb1162cf1, 0x395b0889, 0x4826e160,
 		0xf75dfdc5, 0x425e7260, 0x97478380, 0xf73c4d53,
 		0x3ca60ee3, 0x89b64692, 0x4dfeb2ee, 0xce2f89b3,
@@ -390,7 +398,7 @@ int main() {
 		0x3034633b, 0x28d1c7ba, 0xe97864de, 0x007adfb9,
 		0xf1e404a4, 0x6936916a, 0x04d31acc, 0xa7f30e2e,
 	}, 32};
-	fp_int d = {{
+	struct mpn d = {{
 		0xe7028739, 0x11143a36, 0x023de403, 0xafc1d88d,
 		0xf72ec5f3, 0x1f8d456c, 0x09dea577, 0xafda7987,
 		0x36a13914, 0x741a57ac, 0xbe34048b, 0xbf30a63c,
@@ -400,7 +408,7 @@ int main() {
 		0x4b825299, 0x4810785a, 0x5c8906eb, 0x93fe1db7,
 		0x6e8ed432, 0x10d3611e, 0xc9a404d8, 0x16d166f3,
 	}, 32};
-	c = (fp_int) {{
+	c = (struct mpn) {{
 		0x4b5812dd, 0xe525c5e3, 0xa2cf56c9, 0xdba95714,
 		0x9e8e8989, 0x54618aeb, 0x769d9610, 0x0241812e,
 		0x0015f69d, 0x7731731c, 0x7f164c8c, 0x7f45c0a2,
@@ -410,7 +418,7 @@ int main() {
 		0xd44de62a, 0x7f677aa4, 0x1df28524, 0xcfbdb16f,
 		0x0b11d819, 0xb8428bdd, 0xc32543f5, 0x7d216641,
 	}, 32};
-	m = (fp_int) {{
+	m = (struct mpn) {{
 		0xec6f62d8, 0xb7df7b10, 0xc735e1da, 0x7fba5483,
 		0x67173474, 0xa0cde0d6, 0x4d9b0bcb, 0x3e9e5d0c,
 		0x09785d99, 0xae2dae58, 0x0c7252d1, 0x9b648d5a,
@@ -422,7 +430,7 @@ int main() {
 	}, 32};
 
 	/* test it */
-	fp_exptmod(&c, &d, &n, &e_m);
+	mpn_powmod(&c, &d, &n, &e_m);
 	if (memcmp(&e_m.dp, &m.dp, sizeof(m.dp)) != 0) {
 		printf("Decrypted text not equal\n");
 	}
@@ -437,23 +445,23 @@ int main() {
 			for (int i = 0; i < n.used; i++) n.dp[i] = (unsigned) rand() << 18 | rand();
 			for (int i = n.used; i < FP_SIZE; i++) n.dp[i] = 0;
 		} else {
-			m = (fp_int) {
+			m = (struct mpn) {
 				.used = 4,
 				.dp = {0, 0, 1, 4},
 			};
-			n = (fp_int) {
+			n = (struct mpn) {
 				.used = 3,
 				.dp = {8, 8, 5},
 			};
 		}
-		memcpy(&c,&m,sizeof(fp_int));
-		fp_div(&m,&n,&d);
+		memcpy(&c,&m,sizeof(struct mpn));
+		mpn_div(&m,&n,&d);
 		if (!j) {
 			assert(m.dp[2] == 3 && m.dp[1] == 0x999999a1 && m.dp[0] == 0x999999a8);
 			assert(d.dp[0] == 0xcccccccb);
 		}
-		fp_mul(&n,&d);
-		s_fp_add(&c,&n,&c);
+		mpn_mul(&n,&d);
+		mpn_add(&c,&n,&c);
 		//if(!j)fp_print(&c);
 	}
 	printf("Done.\n");
