@@ -8,9 +8,9 @@
 #include <ctype.h>
 #include <limits.h>
 
-#define FP_SIZE 140
+#define MPN_SIZE 140
 struct mpn {
-	uint32_t dp[FP_SIZE];
+	uint32_t dp[MPN_SIZE];
 	int used;
 };
 
@@ -20,9 +20,9 @@ struct mpn {
 
 void mpn_print(const struct mpn *a) {
 	printf("0x");
-	for (int i = FP_SIZE - 1; i >= a->used; i--) if (a->dp[i]) printf("WTF%d?", i);
+	for (int i = MPN_SIZE - 1; i >= a->used; i--) if (a->dp[i]) printf("WTF%d?", i);
 	for (int i = a->used - 1; i >= 0; i--) printf("%08x%c", a->dp[i], i ? '_' : 'n');
-	if (a->used < 0 || a->used > FP_SIZE) printf("BAD USED %d", a->used);
+	if (a->used < 0 || a->used > MPN_SIZE) printf("BAD USED %d", a->used);
 	putchar('\n');
 }
 
@@ -52,7 +52,7 @@ void mpn_add(const struct mpn *a, const struct mpn *b, struct mpn *c) {
 		c->dp[x] = t;
 		t >>= 32;
 	}
-	if (t && c->used < FP_SIZE) c->dp[c->used++] = t;
+	if (t && c->used < MPN_SIZE) c->dp[c->used++] = t;
 	for (int x = c->used; x < oldused; x++) c->dp[x] = 0;
 	mpn_clamp(c);
 }
@@ -82,7 +82,7 @@ void mpn_mul(struct mpn *A, const struct mpn *B) {
        if say y=17 then we would do (32-17)^2 = 225 unneeded multiplications */
 	// get size of output and trim
 	int pa = A->used + B->used;
-	if (pa >= FP_SIZE) pa = FP_SIZE - 1;
+	if (pa >= MPN_SIZE) pa = MPN_SIZE - 1;
 
 	struct mpn tmp;
 	struct mpn *dst = &tmp;
@@ -196,11 +196,11 @@ puts("WTF??");
 
 /* computes x/R == x (mod N) via Montgomery Reduction */
 void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
-	uint32_t c[FP_SIZE], *_c, mu;
+	uint32_t c[MPN_SIZE], *_c, mu;
 	int x;
 
 	// bail if too large
-	assert(m->used <= FP_SIZE / 2);
+	assert(m->used <= MPN_SIZE / 2);
 
 	// zero the buff
 	memset(c, 0, sizeof(c));
@@ -306,7 +306,7 @@ void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, s
 
 			// new leading digit?
 			// add a MSB which is always 1 at this point
-			if (r && R->used != FP_SIZE - 1) R->dp[R->used++] = 1;
+			if (r && R->used != MPN_SIZE - 1) R->dp[R->used++] = 1;
 
 			if (mpn_cmp(R, P) >= 0) mpn_sub(R, P, R);
 		}
@@ -440,10 +440,10 @@ int main() {
 		if (j){
 			m.used = rand() % 39+1;
 			for (int i = 0; i < m.used; i++) m.dp[i] = (unsigned) rand() << 18 | rand();
-			for (int i = m.used; i < FP_SIZE; i++) m.dp[i] = 0;
+			for (int i = m.used; i < MPN_SIZE; i++) m.dp[i] = 0;
 			n.used = rand() % (m.used+1)+1;
 			for (int i = 0; i < n.used; i++) n.dp[i] = (unsigned) rand() << 18 | rand();
-			for (int i = n.used; i < FP_SIZE; i++) n.dp[i] = 0;
+			for (int i = n.used; i < MPN_SIZE; i++) n.dp[i] = 0;
 		} else {
 			m = (struct mpn) {
 				.used = 4,
