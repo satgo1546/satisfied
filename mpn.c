@@ -1,87 +1,86 @@
 #include <assert.h>
 #include <stdint.h>
 #include <time.h>
-/* TomsFastMath, a fast ISO C bignum library. -- Tom St Denis */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <limits.h>
 
+// Most of the multiprecision routines are derived from TomsFastMath, a fast ISO C bignum library by Tom St Denis, but with all the faster cases removed.
+// `struct mpn` represents an unsigned integer (“MultiPrecision Natural number”).
 #define MPN_SIZE 140
 struct mpn {
-	uint32_t dp[MPN_SIZE];
-	int count;
+	uint32_t d[MPN_SIZE];
+	size_t count;
 };
 
-#define mpn_clamp(a) while ((a)->count && (a)->dp[(a)->count-1] == 0) --((a)->count)
+#define mpn_clamp(x) while ((x)->count && !(x)->d[(x)->count - 1]) (x)->count--
 #define max(x, y) ((x) > (y) ? (x) : (y))
 #define min(x, y) ((x) < (y) ? (x) : (y))
 
-void mpn_print(const struct mpn *a) {
+// Print a multiprecision integer as a JavaScript BigInt literal.
+void mpn_print(const struct mpn *x) {
 	printf("0x");
-	for (int i = MPN_SIZE - 1; i >= a->count; i--) if (a->dp[i]) printf("WTF%d?", i);
-	for (int i = a->count - 1; i >= 0; i--) printf("%08x%c", a->dp[i], i ? '_' : 'n');
-	if (a->count < 0 || a->count > MPN_SIZE) printf("BAD USED %d", a->count);
+	for (size_t i = MPN_SIZE - 1; i != SIZE_MAX; i--) {
+		if (i < x->count) {
+			printf("%08x%c", x->d[i], i ? '_' : 'n');
+		} else {
+			if (x->d[i]) printf("WTF%d?", i);
+		}
+	}
+	if (x->count > MPN_SIZE) printf("BAD COUNT %d", x->count);
 	putchar('\n');
 }
 
-int mpn_count_bits(const struct mpn *a) {
+// Take the most significant digit and count the bits used in it.
+int mpn_count_bits(const struct mpn *x) {
 	int r = 0;
-	/* take the last digit and count the bits in it */
-	for (uint32_t q = a->dp[a->count - 1]; q; q >>= 1) r++;
+	for (uint32_t q = x->d[x->count - 1]; q; q >>= 1) r++;
 	return r;
 }
 
+// Comparing returns sgn(a − b) ∈ {−1, 0, 1}.
 int mpn_cmp(const struct mpn *a, const struct mpn *b) {
 	if (a->count > b->count) return 1;
 	if (a->count < b->count) return -1;
-	for (int x = a->count - 1; x >= 0; x--) {
-		if (a->dp[x] > b->dp[x]) return 1;
-		if (a->dp[x] < b->dp[x]) return -1;
+	for (size_t i = a->count - 1; i != SIZE_MAX; i--) {
+		if (a->d[i] > b->d[i]) return 1;
+		if (a->d[i] < b->d[i]) return -1;
 	}
 	return 0;
 }
 
 void mpn_add(const struct mpn *a, const struct mpn *b, struct mpn *c) {
-	const int oldused = c->count;
+	const size_t oldused = c->count;
 	c->count = max(a->count, b->count);
 	uint64_t t = 0;
-	for (int x = 0; x < c->count; x++) {
-		t += (uint64_t) a->dp[x] + b->dp[x];
-		c->dp[x] = t;
+	for (size_t i = 0; i < c->count; i++) {
+		t += (uint64_t) a->d[i] + b->d[i];
+		c->d[i] = t;
 		t >>= 32;
 	}
-	if (t && c->count < MPN_SIZE) c->dp[c->count++] = t;
-	for (int x = c->count; x < oldused; x++) c->dp[x] = 0;
-	mpn_clamp(c);
+	if (t && c->count < MPN_SIZE) c->d[c->count++] = t;
+	for (size_t x = c->count; x < oldused; x++) c->d[x] = 0;
 }
 
-// unsigned subtraction ||a|| >= ||b|| ALWAYS!
+// Unsigned subtraction — a ≥ b assumed.
 void mpn_sub(const struct mpn *a, const struct mpn *b, struct mpn *c) {
-	const int oldused = c->count;
+	const size_t oldused = c->count;
 	c->count = a->count;
 	uint64_t t = 0;
-	for (int x = 0; x < c->count; x++) {
-		t = (uint64_t) a->dp[x] - b->dp[x] - t;
-		c->dp[x] = t;
+	for (size_t i = 0; i < c->count; i++) {
+		t = (uint64_t) a->d[i] - b->d[i] - t;
+		c->d[i] = t;
 		t >>= 32;
 		t &= 1;
 	}
-	for (int x = c->count; x < oldused; x++) c->dp[x] = 0;
-	mpn_clamp(c);
+	for (size_t x = c->count; x < oldused; x++) c->d[x] = 0;
+	while (c->count && !c->d[c->count - 1]) c->count--;
 }
 
-/* generic PxQ multiplier */
-// a *= b
 void mpn_mul(struct mpn *A, const struct mpn *B) {
-	int old_used = A->count;
-    /* pick a comba (unrolled 4/8/16/32 x or rolled) based on the size
-       of the largest input.  We also want to avoid doing excess mults if the
-       inputs are not close to the next power of two.  That is, for example,
-       if say y=17 then we would do (32-17)^2 = 225 unneeded multiplications */
-	// get size of output and trim
-	int pa = A->count + B->count;
+	size_t old_used = A->count;
+	size_t pa = A->count + B->count;
 	if (pa >= MPN_SIZE) pa = MPN_SIZE - 1;
 
 	struct mpn tmp;
@@ -89,70 +88,72 @@ void mpn_mul(struct mpn *A, const struct mpn *B) {
 	memset(dst, 0, sizeof(struct mpn));
 
 	uint32_t c0 = 0, c1 = 0, c2 = 0;
-	for (int ix = 0; ix < pa; ix++) {
+	for (size_t ix = 0; ix < pa; ix++) {
 		/* get offsets into the two bignums */
-		int ty = min(ix, B->count - 1);
-		int tx = ix - ty;
+		size_t ty = min(ix, B->count - 1);
+		size_t tx = ix - ty;
 
 		/* this is the number of times the loop will iterate, essentially it's
 			 while (tx++ < a->count && ty-- >= 0) { ... } */
-		const int iy = min(A->count - tx, ty + 1);
+		const size_t iy = min(A->count - tx, ty + 1);
 
 		/* execute loop */
 		c0 = c1;
 		c1 = c2;
 		c2 = 0;
-		for (int iz = 0; iz < iy; iz++) {
-			uint64_t t = (uint64_t) A->dp[tx++] * B->dp[ty--] + c0;
+		for (size_t iz = 0; iz < iy; iz++) {
+			uint64_t t = (uint64_t) A->d[tx++] * B->d[ty--] + c0;
 			c0 = t;
 			t >>= 32;
 			c1 = t += c1;
 			c2 += t >> 32;
 		}
 
-		/* store term */
-		dst->dp[ix] = c0;
+		// store term
+		dst->d[ix] = c0;
 	}
 
 	dst->count = pa;
 	mpn_clamp(dst);
 	memcpy(A, &tmp, sizeof(struct mpn));
-	for (int y = A->count; y < old_used; y++) A->dp[y] = 0;
+	for (size_t y = A->count; y < old_used; y++) A->d[y] = 0;
 }
 
 void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 	// This is Algorithm D in TAOCP, 4.3.1, with exercise 37 integrated.
 	assert(v->count);
 
-	/* if a < b then q=0, r = a */
-	if (mpn_cmp(u, v) < 0) return;
+	// u < v ⟹ q = 0 and remainder remains in u.
+	if (mpn_cmp(u, v) < 0) {
+		if (q) q->count = 0;
+		return;
+	}
 
 	if (q) {
 		memset(q, 0, sizeof(struct mpn));
 		q->count = u->count + 2;
 	}
 	uint32_t v1;
-	uint32_t v2 = v->count >= 2 ? v->dp[v->count - 2] : 0;
-	uint32_t v3 = v->count >= 3 ? v->dp[v->count - 3] : 0;
+	uint32_t v2 = v->count >= 2 ? v->d[v->count - 2] : 0;
+	uint32_t v3 = v->count >= 3 ? v->d[v->count - 3] : 0;
 	int e = 0;
-	for (v1 = v->dp[v->count - 1]; v1 <= UINT32_MAX / 2; v1 <<= 1) e++;
+	for (v1 = v->d[v->count - 1]; v1 <= UINT32_MAX / 2; v1 <<= 1) e++;
 	if (e) {
 		v1 |= v2 >> (32 - e);
 		v2 <<= e;
 		v2 |= v3 >> (32 - e);
 	}
 
-	for (int j = u->count - v->count; j >= 0; j--) {
-		uint32_t u1 = u->dp[j + v->count] << e, u2 = 0, u3 = 0;
-//printf("%x %x %x    %x %x %x\n",v1,v2,v3,u1,u2,u3);
+	for (size_t j = u->count - v->count; j != SIZE_MAX; j--) {
+		uint32_t u1 = u->d[j + v->count] << e, u2 = 0, u3 = 0;
 		if (j + v->count >= 1) {
-			if (e) u1 |= u->dp[j + v->count - 1] >> (32 - e);
-			u2 = u->dp[j + v->count - 1] << e;
+			if (e) u1 |= u->d[j + v->count - 1] >> (32 - e);
+			u2 = u->d[j + v->count - 1] << e;
 			if (j + v->count >= 2) {
-				if (e) u2 |= u->dp[j + v->count - 2] >> (32 - e);
-				u3 = u->dp[j + v->count - 2] << e;
+				if (e) u2 |= u->d[j + v->count - 2] >> (32 - e);
+				u3 = u->d[j + v->count - 2] << e;
 				if (j + v->count >= 3 && e) {
-					u3 |= u->dp[j + v->count - 3] >> (32 - e);
+					u3 |= u->d[j + v->count - 3] >> (32 - e);
 				}
 			}
 		}
@@ -172,8 +173,8 @@ void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 			struct mpn a = {0}, c = {0};
 			a.count = v->count + 1;
 			c.count = 1;
-			for (int i = 0; i < a.count; i++) a.dp[i] = u->dp[i + j];
-			c.dp[0] = qhat;
+			for (size_t i = 0; i < a.count; i++) a.d[i] = u->d[i + j];
+			c.d[0] = qhat;
 			mpn_mul(&c, v);
 			// D5
 			if (mpn_cmp(&a, &c) < 0) {
@@ -186,8 +187,8 @@ puts("WTF??");
 				// D4
 				mpn_sub(&a, &c, &a);
 			}
-			for (int i = 0; i <= v->count; i++) u->dp[i + j] = a.dp[i];
-			if (q) q->dp[j] = qhat;
+			for (size_t i = 0; i <= v->count; i++) u->d[i + j] = a.d[i];
+			if (q) q->d[j] = qhat;
 		}
 	}
 	mpn_clamp(u);
@@ -197,18 +198,18 @@ puts("WTF??");
 /* computes x/R == x (mod N) via Montgomery Reduction */
 void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
 	uint32_t c[MPN_SIZE], *_c, mu;
-	int x;
+	size_t x;
 
-	// bail if too large
+	// Bail if the input is too big.
 	assert(m->count <= MPN_SIZE / 2);
 
 	// zero the buff
 	memset(c, 0, sizeof(c));
-	const int pa = m->count;
+	const size_t pa = m->count;
 
 	// copy the input
-	const int oldused = a->count;
-	for (x = 0; x < oldused; x++) c[x] = a->dp[x];
+	const size_t oldused = a->count;
+	for (x = 0; x < oldused; x++) c[x] = a->d[x];
 
 	for (x = 0; x < pa; x++) {
 		uint32_t cy = 0;
@@ -216,8 +217,8 @@ void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
 		mu = c[x] * mp;
 		_c = c + x;
 
-		for (int y = 0; y < pa; y++) {
-			uint64_t t = (uint64_t) mu * m->dp[y] + _c[0] + cy;
+		for (size_t y = 0; y < pa; y++) {
+			uint64_t t = (uint64_t) mu * m->d[y] + _c[0] + cy;
 			_c[0] = t;
 			cy = t >> 32;
 			_c++;
@@ -231,8 +232,8 @@ void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
 
 	/* now copy out */
 	_c = c + pa;
-	for (x = 0; x < pa + 1; x++) a->dp[x] = *_c++;
-	for (; x < oldused; x++) a->dp[x] = 0;
+	for (x = 0; x < pa + 1; x++) a->d[x] = *_c++;
+	for (; x < oldused; x++) a->d[x] = 0;
 	a->count = pa + 1;
 	mpn_clamp(a);
 
@@ -241,7 +242,8 @@ void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
 }
 
 // montgomery ladder based G^X mod P → Y
-// Based on work by Marc Joye, Sung-Ming Yen, "The Montgomery Powering Ladder", Cryptographic Hardware and Embedded Systems, CHES 2002 */
+// Based on work by Marc Joye, Sung-Ming Yen, “The Montgomery Powering Ladder”, Cryptographic Hardware and Embedded Systems, CHES 2002.
+// See also TAOCP, exercise 4.3.1–41.
 void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, struct mpn *Y) {
 	struct mpn R[2];
 	uint32_t mp;
@@ -249,13 +251,9 @@ void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, s
 
 	/* now setup montgomery */
 	{
-		/* fast inversion mod 2**k
- * Based on the fact that
- * XA = 1 (mod 2**n)  =>  (X(2-XA)) A = 1 (mod 2**2n)
- *                    =>  2*X*A - X*X*A*A = 1
- *                    =>  2*(1) - (1)     = 1
- */
-		uint32_t b = P->dp[0];
+		// Fast inversion mod 2^k
+		//   XA ≡ 1 (mod 2^n) ⟹ (X(2 − XA))A ≡ 1 (mod 2^2n)
+		uint32_t b = P->d[0];
 
 		assert(b & 1);
 
@@ -279,10 +277,10 @@ void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, s
 		/* compute A = B^(n-1) * 2^(bits-1) */
 		if (P->count > 1) {
 			R->count = P->count;
-			R->dp[P->count - 1] = (uint32_t) 1 << (bits - 1);
+			R->d[P->count - 1] = (uint32_t) 1 << (bits - 1);
 		} else {
 			R->count = 1;
-			R->dp[0] = 1;
+			R->d[0] = 1;
 			bits = 1;
 		}
 
@@ -292,13 +290,13 @@ void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, s
 			uint32_t r = 0;
 
 			/* carry */
-			for (int x = 0; x < R->count; x++) {
+			for (size_t x = 0; x < R->count; x++) {
 				/* get what will be the *next* carry bit from the MSB of the current digit */
-				uint32_t rr = R->dp[x] >> 31;
+				uint32_t rr = R->d[x] >> 31;
 
 				/* now shift up this digit, add in the carry [from the previous] */
-				R->dp[x] <<= 1;
-				R->dp[x] |= r;
+				R->d[x] <<= 1;
+				R->d[x] |= r;
 
 				/* copy the carry that would be from the source digit into the next iteration */
 				r = rr;
@@ -306,7 +304,7 @@ void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, s
 
 			// new leading digit?
 			// add a MSB which is always 1 at this point
-			if (r && R->count != MPN_SIZE - 1) R->dp[R->count++] = 1;
+			if (r && R->count != MPN_SIZE - 1) R->d[R->count++] = 1;
 
 			if (mpn_cmp(R, P) >= 0) mpn_sub(R, P, R);
 		}
@@ -332,7 +330,7 @@ void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, s
 			// if digidx == -1 we are out of digits so break
 			if (digidx == -1) break;
 			// read next digit and reset bitcnt
-			buf = X->dp[digidx--];
+			buf = X->d[digidx--];
 			bitcnt = 32;
 		}
 
@@ -383,7 +381,7 @@ int main() {
 
 	/* test it */
 	mpn_powmod(&m, &e, &n, &e_m);
-	if (memcmp(&e_m.dp, &c.dp, sizeof(c.dp)) != 0) {
+	if (memcmp(&e_m.d, &c.d, sizeof(c.d)) != 0) {
 		printf("Encrypted text not equal\n");
 	}
 
@@ -431,7 +429,7 @@ int main() {
 
 	/* test it */
 	mpn_powmod(&c, &d, &n, &e_m);
-	if (memcmp(&e_m.dp, &m.dp, sizeof(m.dp)) != 0) {
+	if (memcmp(&e_m.d, &m.d, sizeof(m.d)) != 0) {
 		printf("Decrypted text not equal\n");
 	}
 
@@ -439,26 +437,26 @@ int main() {
 	for(int j=0;j<1234;j++){
 		if (j){
 			m.count = rand() % 39+1;
-			for (int i = 0; i < m.count; i++) m.dp[i] = (unsigned) rand() << 18 | rand();
-			for (int i = m.count; i < MPN_SIZE; i++) m.dp[i] = 0;
+			for (size_t i = 0; i < m.count; i++) m.d[i] = (unsigned) rand() << 18 | rand();
+			for (size_t i = m.count; i < MPN_SIZE; i++) m.d[i] = 0;
 			n.count = rand() % (m.count+1)+1;
-			for (int i = 0; i < n.count; i++) n.dp[i] = (unsigned) rand() << 18 | rand();
-			for (int i = n.count; i < MPN_SIZE; i++) n.dp[i] = 0;
+			for (size_t i = 0; i < n.count; i++) n.d[i] = (unsigned) rand() << 18 | rand();
+			for (size_t i = n.count; i < MPN_SIZE; i++) n.d[i] = 0;
 		} else {
 			m = (struct mpn) {
 				.count = 4,
-				.dp = {0, 0, 1, 4},
+				.d = {0, 0, 1, 4},
 			};
 			n = (struct mpn) {
 				.count = 3,
-				.dp = {8, 8, 5},
+				.d = {8, 8, 5},
 			};
 		}
 		memcpy(&c,&m,sizeof(struct mpn));
 		mpn_div(&m,&n,&d);
 		if (!j) {
-			assert(m.dp[2] == 3 && m.dp[1] == 0x999999a1 && m.dp[0] == 0x999999a8);
-			assert(d.dp[0] == 0xcccccccb);
+			assert(m.d[2] == 3 && m.d[1] == 0x999999a1 && m.d[0] == 0x999999a8);
+			assert(d.d[0] == 0xcccccccb);
 		}
 		mpn_mul(&n,&d);
 		mpn_add(&c,&n,&c);

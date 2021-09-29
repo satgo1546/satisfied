@@ -20,7 +20,7 @@
 
 #include "bits.c"
 #define main mian
-#include "rsa.c"
+#include "mpn.c"
 #undef main
 
 // UTF8_FLAG gets introduced in Android 2.2.
@@ -165,7 +165,7 @@ uint32_t crc32(FILE *fp) {
 	return ~r;
 }
 
-unsigned char (*sha1(FILE *fp))[20] {
+unsigned char *sha1(FILE *fp) {
 	uint32_t a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476, e = 0xc3d2e1f0;
 	uint32_t hash[5] = {a, b, c, d, e}, w[80] = {0};
 	size_t n = 0;
@@ -215,7 +215,7 @@ unsigned char (*sha1(FILE *fp))[20] {
 	for (int i = 0; i < 20; i++) {
 		ret[i] = hash[i / 4] >> ((3 - i % 4) * 8);
 	}
-	return &ret;
+	return ret;
 }
 
 
@@ -542,12 +542,12 @@ void zip_end_archive(struct zip_archive *this) {
 			struct mpn x = {{[5] = 0x05000414, 0x0e03021a, 0x0906052b, 0x00302130, [63] = 0x0001ffff}, 64};
 			for (size_t i = 0; i < 5; i++) {
 				size_t j = 16 - i * 4;
-				x.dp[i] = (signature_digest[j] << 24) | (signature_digest[j + 1] << 16)
+				x.d[i] = (signature_digest[j] << 24) | (signature_digest[j + 1] << 16)
 					| (signature_digest[j + 2] << 8) | signature_digest[j + 3];
 			}
-			for (size_t i = 9; i < 63; i++) x.dp[i] = 0xffffffff;
+			for (size_t i = 9; i < 63; i++) x.d[i] = 0xffffffff;
 			mpn_powmod(&x, &apk_testkey.d, &apk_testkey.modulus, &x);
-			for (size_t i = 63; i != SIZE_MAX; i--) write32be(this->fp, x.dp[i]);
+			for (size_t i = 63; i != SIZE_MAX; i--) write32be(this->fp, x.d[i]);
 		zip_end_file(this);
 	}
 	if (this->jar_manifest) fclose(this->jar_manifest);
