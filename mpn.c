@@ -50,59 +50,56 @@ int mpn_cmp(const struct mpn *a, const struct mpn *b) {
 	return 0;
 }
 
-void mpn_add(const struct mpn *a, const struct mpn *b, struct mpn *c) {
-	const size_t oldused = c->count;
-	c->count = max(a->count, b->count);
+// a ← a + b
+void mpn_add(struct mpn *a, const struct mpn *b) {
+	const size_t oldused = a->count;
+	if (b->count > a->count) a->count = b->count;
 	uint64_t t = 0;
-	for (size_t i = 0; i < c->count; i++) {
+	for (size_t i = 0; i < a->count; i++) {
 		t += (uint64_t) a->d[i] + b->d[i];
-		c->d[i] = t;
+		a->d[i] = t;
 		t >>= 32;
 	}
-	if (t && c->count < MPN_SIZE) c->d[c->count++] = t;
-	for (size_t x = c->count; x < oldused; x++) c->d[x] = 0;
+	if (t && a->count < MPN_SIZE) a->d[a->count++] = t;
+	for (size_t x = a->count; x < oldused; x++) a->d[x] = 0;
 }
 
+// a ← a − b
 // Unsigned subtraction — a ≥ b assumed.
-void mpn_sub(const struct mpn *a, const struct mpn *b, struct mpn *c) {
-	const size_t oldused = c->count;
-	c->count = a->count;
+void mpn_sub(struct mpn *a, const struct mpn *b) {
+	const size_t oldused = a->count;
 	uint64_t t = 0;
-	for (size_t i = 0; i < c->count; i++) {
+	for (size_t i = 0; i < a->count; i++) {
 		t = (uint64_t) a->d[i] - b->d[i] - t;
-		c->d[i] = t;
+		a->d[i] = t;
 		t >>= 32;
 		t &= 1;
 	}
-	for (size_t x = c->count; x < oldused; x++) c->d[x] = 0;
-	while (c->count && !c->d[c->count - 1]) c->count--;
+	for (size_t x = a->count; x < oldused; x++) a->d[x] = 0;
+	while (a->count && !a->d[a->count - 1]) a->count--;
 }
 
-void mpn_mul(struct mpn *A, const struct mpn *B) {
-	size_t old_used = A->count;
-	size_t pa = A->count + B->count;
-	if (pa >= MPN_SIZE) pa = MPN_SIZE - 1;
-
-	struct mpn tmp;
-	struct mpn *dst = &tmp;
-	memset(dst, 0, sizeof(struct mpn));
+// a ← a × b
+void mpn_mul(struct mpn *a, const struct mpn *b) {
+	struct mpn c = {.d = {0}, .count = a->count + b->count};
+	if (c.count >= MPN_SIZE) c.count = MPN_SIZE - 1;
 
 	uint32_t c0 = 0, c1 = 0, c2 = 0;
-	for (size_t ix = 0; ix < pa; ix++) {
-		/* get offsets into the two bignums */
-		size_t ty = min(ix, B->count - 1);
+	for (size_t ix = 0; ix < c.count; ix++) {
+		// get offsets into the two bignums
+		size_t ty = min(ix, b->count - 1);
 		size_t tx = ix - ty;
 
 		/* this is the number of times the loop will iterate, essentially it's
 			 while (tx++ < a->count && ty-- >= 0) { ... } */
-		const size_t iy = min(A->count - tx, ty + 1);
+		const size_t iy = min(a->count - tx, ty + 1);
 
-		/* execute loop */
+		// execute loop
 		c0 = c1;
 		c1 = c2;
 		c2 = 0;
 		for (size_t iz = 0; iz < iy; iz++) {
-			uint64_t t = (uint64_t) A->d[tx++] * B->d[ty--] + c0;
+			uint64_t t = (uint64_t) a->d[tx++] * b->d[ty--] + c0;
 			c0 = t;
 			t >>= 32;
 			c1 = t += c1;
@@ -110,20 +107,20 @@ void mpn_mul(struct mpn *A, const struct mpn *B) {
 		}
 
 		// store term
-		dst->d[ix] = c0;
+		c.d[ix] = c0;
 	}
 
-	dst->count = pa;
-	mpn_clamp(dst);
-	memcpy(A, &tmp, sizeof(struct mpn));
-	for (size_t y = A->count; y < old_used; y++) A->d[y] = 0;
+	while (c.count && !c.d[c.count - 1]) c.count--;
+	memcpy(a, &c, sizeof(struct mpn));
 }
 
+// (q, u) ← (⌊u/v⌋, u mod v)
+// q can be NULL.
 void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 	// This is Algorithm D in TAOCP, 4.3.1, with exercise 37 integrated.
 	assert(v->count);
 
-	// u < v ⟹ q = 0 and remainder remains in u.
+	// u < v  ⟹  q = 0 and remainder remains in u.
 	if (mpn_cmp(u, v) < 0) {
 		if (q) q->count = 0;
 		return;
@@ -133,43 +130,50 @@ void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 		memset(q, 0, sizeof(struct mpn));
 		q->count = u->count + 2;
 	}
-	uint32_t v1;
+	// Exercise 37
+	uint32_t v1 = v->d[v->count - 1];
 	uint32_t v2 = v->count >= 2 ? v->d[v->count - 2] : 0;
-	uint32_t v3 = v->count >= 3 ? v->d[v->count - 3] : 0;
-	int e = 0;
-	for (v1 = v->d[v->count - 1]; v1 <= UINT32_MAX / 2; v1 <<= 1) e++;
+	const int e = 32 - mpn_count_bits(v);
 	if (e) {
+		v1 <<= e;
 		v1 |= v2 >> (32 - e);
 		v2 <<= e;
-		v2 |= v3 >> (32 - e);
+		if (v->count >= 3) v2 |= v->d[v->count - 3] >> (32 - e);
 	}
 
 	for (size_t j = u->count - v->count; j != SIZE_MAX; j--) {
-		uint32_t u1 = u->d[j + v->count] << e, u2 = 0, u3 = 0;
-		if (j + v->count >= 1) {
-			if (e) u1 |= u->d[j + v->count - 1] >> (32 - e);
-			u2 = u->d[j + v->count - 1] << e;
-			if (j + v->count >= 2) {
-				if (e) u2 |= u->d[j + v->count - 2] >> (32 - e);
-				u3 = u->d[j + v->count - 2] << e;
-				if (j + v->count >= 3 && e) {
-					u3 |= u->d[j + v->count - 3] >> (32 - e);
-				}
-			}
+		// Exercise 37
+		uint32_t u1 = u->d[j + v->count];
+		uint32_t u2 = j + v->count >= 1 ? u->d[j + v->count - 1] : 0;
+		uint32_t u3 = j + v->count >= 2 ? u->d[j + v->count - 2] : 0;
+		if (e) {
+			u1 <<= e;
+			u1 |= u2 >> (32 - e);
+			u2 <<= e;
+			u2 |= u3 >> (32 - e);
+			u3 <<= e;
+			if (j + v->count >= 3) u3 |= u->d[j + v->count - 3] >> (32 - e);
 		}
-//printf("%x %x %x    %x %x %x\n",v1,v2,v3,u1,u2,u3);
 		// D3
 		uint64_t qhat = ((uint64_t) u1 << 32) | u2;
 		uint64_t rhat = qhat % v1;
 		qhat /= v1;
-//printf("%d %llx %llx\n", j, qhat, rhat);
-		while (qhat - 1 == UINT32_MAX || qhat * v2 > ((rhat << 32) | u3)) {
+		while (qhat > UINT32_MAX || qhat * v2 > ((rhat << 32) | u3)) {
 			qhat--;
 			rhat += v1;
 			if (rhat > UINT32_MAX) break;
 		}
 		// D4
-		{
+		if (1){
+			uint64_t t = 0;
+			for (size_t i = 0; i <= v->count; i++) {
+				t = u->d[i + j] - qhat * v->d[i] - t;
+				u->d[i + j] = t;
+				t >>= 32;
+				t = (uint32_t) -t;
+			}
+		if (q) q->d[j] = qhat;
+		}else{
 			struct mpn a = {0}, c = {0};
 			a.count = v->count + 1;
 			c.count = 1;
@@ -182,20 +186,21 @@ void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 puts("WTF??");
 // TODO
 				qhat--;
-				mpn_add(&a, v, &a);
+				mpn_add(&a, v);
 			} else {
 				// D4
-				mpn_sub(&a, &c, &a);
+				mpn_sub(&a, &c);
 			}
 			for (size_t i = 0; i <= v->count; i++) u->d[i + j] = a.d[i];
 			if (q) q->d[j] = qhat;
 		}
+//printf("j=%u\n",j);for(size_t i = 0;i <= v->count;i++)printf("[%u+%u=%u]%08x\n",j,i,j+i,u->d[j+i]);putchar('\n');
 	}
 	mpn_clamp(u);
 	if (q) mpn_clamp(q);
 }
 
-/* computes x/R == x (mod N) via Montgomery Reduction */
+// computes x/R == x (mod N) via Montgomery Reduction
 void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
 	uint32_t c[MPN_SIZE], *_c, mu;
 	size_t x;
@@ -230,7 +235,7 @@ void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
 		}
 	}
 
-	/* now copy out */
+	// copy out
 	_c = c + pa;
 	for (x = 0; x < pa + 1; x++) a->d[x] = *_c++;
 	for (; x < oldused; x++) a->d[x] = 0;
@@ -238,7 +243,7 @@ void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
 	mpn_clamp(a);
 
 	/* if A >= m then A = A - m */
-	if (mpn_cmp(a, m) >= 0) mpn_sub(a, m, a);
+	if (mpn_cmp(a, m) >= 0) mpn_sub(a, m);
 }
 
 // montgomery ladder based G^X mod P → Y
@@ -306,7 +311,7 @@ void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, s
 			// add a MSB which is always 1 at this point
 			if (r && R->count != MPN_SIZE - 1) R->d[R->count++] = 1;
 
-			if (mpn_cmp(R, P) >= 0) mpn_sub(R, P, R);
+			if (mpn_cmp(R, P) >= 0) mpn_sub(R, P);
 		}
 	}
 
@@ -459,7 +464,7 @@ int main() {
 			assert(d.d[0] == 0xcccccccb);
 		}
 		mpn_mul(&n,&d);
-		mpn_add(&c,&n,&c);
+		mpn_add(&c,&n);
 		//if(!j)fp_print(&c);
 	}
 	printf("Done.\n");
