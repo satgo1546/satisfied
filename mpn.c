@@ -218,62 +218,44 @@ void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t m_prime) {
 	if (mpn_cmp(a, m) >= 0) mpn_sub(a, m);
 }
 
-// montgomery ladder based G^X mod P → Y
-// Based on work by Marc Joye, Sung-Ming Yen, “The Montgomery Powering Ladder”, Cryptographic Hardware and Embedded Systems, CHES 2002.
-// See also TAOCP, exercise 4.3.1–41. Knuth has w₀w′ mod b = 1 with subtraction in Montgomery reduction, while here we adopt the convention of P₀m mod 2³² = −1 with addition in REDC.
-void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, struct mpn *Y) {
-	struct mpn R[2] = {0};
-
-	// P₀ and 2³² (the base) must be coprime.
-	assert(P->count && P->d[0] & 1);
+// base ← base^exponent mod m
+// This is the standard fast exponentiation by squaring and multiplying, vulnerable to timing attacks.
+// See TAOCP, exercise 4.3.1–41 for an explanation of Montgomery's trick.
+// Knuth has w₀w′ mod b = 1 with subtraction in Montgomery reduction, while here we adopt the convention of m₀m mod 2³² = −1 with addition in REDC.
+void mpn_powmod(struct mpn *base, const struct mpn *exponent, const struct mpn *m) {
+	// m₀ and 2³² (the base) must be coprime.
+	assert(m->count && m->d[0] & 1);
 	// Fast inversion mod 2ⁿ.
-	//   P₀m′ ≡ 1 (mod 2ⁿ)  ⟹  P₀(m′(2 − P₀m′)) ≡ 1 (mod 2²ⁿ)
-	uint32_t m_prime = P->d[0];
-	m_prime += ((P->d[0] + 2) & 4) << 1; // P₀m′ mod 2⁴ = 1
-	m_prime *= 2 - P->d[0] * m_prime; // P₀m′ mod 2⁸ = 1
-	m_prime *= 2 - P->d[0] * m_prime; // P₀m′ mod 2¹⁶ = 1
-	m_prime *= 2 - P->d[0] * m_prime; // P₀m′ mod 2³² = 1
-	m_prime = -m_prime; // P₀m′ mod 2³² = −1
+	//   m₀m′ ≡ 1 (mod 2ⁿ)  ⟹  m₀(m′(2 − m₀m′)) ≡ 1 (mod 2²ⁿ)
+	uint32_t m_prime = m->d[0];
+	m_prime += ((m->d[0] + 2) & 4) << 1; // m₀m′ mod 2⁴ = 1
+	m_prime *= 2 - m->d[0] * m_prime; // m₀m′ mod 2⁸ = 1
+	m_prime *= 2 - m->d[0] * m_prime; // m₀m′ mod 2¹⁶ = 1
+	m_prime *= 2 - m->d[0] * m_prime; // m₀m′ mod 2³² = 1
+	m_prime = -m_prime; // m₀m′ mod 2³² = −1
 
-	// R₀ ← 2³²ⁿ mod P
-	R[0].count = P->count + 1;
-	R[0].d[P->count] = 1;
-	mpn_div(R, P, NULL);
+	// r ← 2³²ⁿ mod m
+	struct mpn r = {.d = {0}, .count = m->count + 1};
+	r.d[m->count] = 1;
+	mpn_div(&r, m, NULL);
 
-if(0){
-	memcpy(&R[1], R, sizeof(struct mpn));
-}else{
-	/* set R[1] to G * R[0] mod m′ */
-	memcpy(&R[1], G, sizeof(struct mpn));
-	mpn_div(&R[1], P, NULL);
-	mpn_mul(&R[1], &R[0]);
-	mpn_div(&R[1], P, NULL);
-}
+	// base ← (base × r) mod m
+	mpn_div(base, m, NULL);
+	mpn_mul(base, &r);
+	mpn_div(base, m, NULL);
 
-	/* for j = t-1 downto 0 do
-        r_!k = R0*R1; r_k = r_k^2 */
-
-	for (size_t digidx = X->count * 32 + mpn_count_bits(X) - 1; digidx != SIZE_MAX; digidx--) {
-		// Fetch the next most significant bit in the exponent into y.
-		int y = (X->d[digidx / 32] >> (digidx & 31)) & 1;
-
-if(0){
-		mpn_mul(R, R);
-		mpn_redc(R, P, m_prime);
-		if (y) {
-			mpn_mul(R, &R[1]);
-			mpn_redc(R, P, m_prime);
+	// Go through the bits in the exponent, from the most significant to the least significant.
+	for (size_t digidx = exponent->count * 32 + mpn_count_bits(exponent) - 1; digidx != SIZE_MAX; digidx--) {
+		// Apply the square-and-multiply algorithm.
+		mpn_mul(&r, &r);
+		mpn_redc(&r, m, m_prime);
+		if ((exponent->d[digidx / 32] >> (digidx & 31)) & 1) {
+			mpn_mul(&r, base);
+			mpn_redc(&r, m, m_prime);
 		}
-}else{
-		mpn_mul(&R[y ^ 1], &R[y]);
-		mpn_redc(&R[y ^ 1], P, m_prime);
-		mpn_mul(&R[y], &R[y]);
-		mpn_redc(&R[y], P, m_prime);
-}
 	}
-
-	mpn_redc(R, P, m_prime);
-	memcpy(Y, R, sizeof(struct mpn));
+	mpn_redc(&r, m, m_prime);
+	memcpy(base, &r, sizeof(struct mpn));
 }
 
 int main() {
@@ -304,11 +286,11 @@ int main() {
 		0x81e83a73, 0xd11caf9c, 0x6d8ae214, 0xa66ed7eb,
 		0xce57c649, 0x6b00818c, 0x2b5879d0, 0x29099ab5,
 		0x322b33c7, 0x9390e2df, 0x250f45b9, 0x39f5a911,
-	}, 32}, e_m;
+	}, 32};
 
 	/* test it */
-	mpn_powmod(&m, &e, &n, &e_m);
-	if (memcmp(&e_m.d, &c.d, sizeof(c.d)) != 0) {
+	mpn_powmod(&m, &e, &n);
+	if (memcmp(&m.d, &c.d, sizeof(c.d)) != 0) {
 		printf("Encrypted text not equal\n");
 	}
 
@@ -355,8 +337,8 @@ int main() {
 	}, 32};
 
 	/* test it */
-	mpn_powmod(&c, &d, &n, &e_m);
-	if (memcmp(&e_m.d, &m.d, sizeof(m.d)) != 0) {
+	mpn_powmod(&c, &d, &n);
+	if (memcmp(&c.d, &m.d, sizeof(m.d)) != 0) {
 		printf("Decrypted text not equal\n");
 	}
 

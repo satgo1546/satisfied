@@ -546,7 +546,7 @@ void zip_end_archive(struct zip_archive *this) {
 					| (signature_digest[j + 2] << 8) | signature_digest[j + 3];
 			}
 			for (size_t i = 9; i < 63; i++) x.d[i] = 0xffffffff;
-			mpn_powmod(&x, &apk_testkey.d, &apk_testkey.modulus, &x);
+			mpn_powmod(&x, &apk_testkey.d, &apk_testkey.modulus);
 			for (size_t i = 63; i != SIZE_MAX; i--) write32be(this->fp, x.d[i]);
 		zip_end_file(this);
 	}
