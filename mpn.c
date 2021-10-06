@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <limits.h>
 
-// Most of the multiprecision routines are derived from TomsFastMath, a fast ISO C bignum library by Tom St Denis, but with all the faster cases removed.
+// Most of the multiprecision routines are derived (with extensive modification) from TomsFastMath, a fast ISO C bignum library by Tom St Denis, but with all the faster cases removed.
 // `struct mpn` represents an unsigned integer (“MultiPrecision Natural number”).
 #define MPN_SIZE 140
 struct mpn {
@@ -86,15 +86,14 @@ void mpn_mul(struct mpn *a, const struct mpn *b) {
 
 	uint32_t c0 = 0, c1 = 0, c2 = 0;
 	for (size_t ix = 0; ix < c.count; ix++) {
-		// get offsets into the two bignums
+		// Get offsets into the two integers.
 		size_t ty = min(ix, b->count - 1);
 		size_t tx = ix - ty;
 
-		/* this is the number of times the loop will iterate, essentially it's
-			 while (tx++ < a->count && ty-- >= 0) { ... } */
+		// iy is the number of times the loop will iterate. Essentially it's
+		//   while (tx++ < a->count && ty-- >= 0) …
 		const size_t iy = min(a->count - tx, ty + 1);
 
-		// execute loop
 		c0 = c1;
 		c1 = c2;
 		c2 = 0;
@@ -105,8 +104,6 @@ void mpn_mul(struct mpn *a, const struct mpn *b) {
 			c1 = t += c1;
 			c2 += t >> 32;
 		}
-
-		// store term
 		c.d[ix] = c0;
 	}
 
@@ -141,6 +138,7 @@ void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 		if (v->count >= 3) v2 |= v->d[v->count - 3] >> (32 - e);
 	}
 
+	// D2 & D7
 	for (size_t j = u->count - v->count; j != SIZE_MAX; j--) {
 		// Exercise 37
 		uint32_t u1 = u->d[j + v->count];
@@ -164,193 +162,117 @@ void mpn_div(struct mpn *u, const struct mpn *v, struct mpn *q) {
 			if (rhat > UINT32_MAX) break;
 		}
 		// D4
-		if (1){
-			uint64_t t = 0;
-			for (size_t i = 0; i <= v->count; i++) {
-				t = u->d[i + j] - qhat * v->d[i] - t;
+		uint64_t t = 0;
+		for (size_t i = 0; i <= v->count; i++) {
+			t = u->d[i + j] - qhat * v->d[i] - t;
+			u->d[i + j] = t;
+			t >>= 32;
+			t = (uint32_t) -t;
+		}
+		// D5
+		if (q) q->d[j] = qhat;
+		if (t) {
+			// D6
+			puts("WTF??");
+			mpn_print(u);
+			mpn_print(v);
+			qhat--;
+			t = 0;
+			for (size_t i = 0; i < v->count; i++) {
+				t += u->d[i + j] + v->d[i];
 				u->d[i + j] = t;
 				t >>= 32;
-				t = (uint32_t) -t;
 			}
-		if (q) q->d[j] = qhat;
-		}else{
-			struct mpn a = {0}, c = {0};
-			a.count = v->count + 1;
-			c.count = 1;
-			for (size_t i = 0; i < a.count; i++) a.d[i] = u->d[i + j];
-			c.d[0] = qhat;
-			mpn_mul(&c, v);
-			// D5
-			if (mpn_cmp(&a, &c) < 0) {
-				// D6
-puts("WTF??");
-// TODO
-				qhat--;
-				mpn_add(&a, v);
-			} else {
-				// D4
-				mpn_sub(&a, &c);
-			}
-			for (size_t i = 0; i <= v->count; i++) u->d[i + j] = a.d[i];
-			if (q) q->d[j] = qhat;
+			u->d[v->count + j] += t;
+			abort();
 		}
-//printf("j=%u\n",j);for(size_t i = 0;i <= v->count;i++)printf("[%u+%u=%u]%08x\n",j,i,j+i,u->d[j+i]);putchar('\n');
 	}
 	mpn_clamp(u);
 	if (q) mpn_clamp(q);
 }
 
-// computes x/R == x (mod N) via Montgomery Reduction
-void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t mp) {
-	uint32_t c[MPN_SIZE], *_c, mu;
-	size_t x;
-
-	// Bail if the input is too big.
+// Montgomery reduction.
+// m is the modulus.
+// m′ is required to satisfy mm′ mod 2³² = −1.
+void mpn_redc(struct mpn *a, const struct mpn *m, uint32_t m_prime) {
 	assert(m->count <= MPN_SIZE / 2);
-
-	// zero the buff
-	memset(c, 0, sizeof(c));
-	const size_t pa = m->count;
-
-	// copy the input
-	const size_t oldused = a->count;
-	for (x = 0; x < oldused; x++) c[x] = a->d[x];
-
-	for (x = 0; x < pa; x++) {
-		uint32_t cy = 0;
-		/* get Mu for this round */
-		mu = c[x] * mp;
-		_c = c + x;
-
-		for (size_t y = 0; y < pa; y++) {
-			uint64_t t = (uint64_t) mu * m->d[y] + _c[0] + cy;
-			_c[0] = t;
-			cy = t >> 32;
-			_c++;
+	for (size_t i = 0; i < m->count; i++) {
+		// Zero out the i-th digit, making a divisible by 2³²⁽ⁱ⁺¹⁾ by adding 2³²ⁱ(aᵢm′ mod 2³²)m to a.
+		uint32_t mu = a->d[i] * m_prime;
+		uint64_t t = 0;
+		for (size_t j = 0; j < m->count; j++) {
+			t += (uint64_t) mu * m->d[j] + a->d[i + j];
+			a->d[i + j] = t;
+			t >>= 32;
 		}
-		while (cy) {
-			uint32_t t = _c[0] += cy;
-			cy = t < cy;
-			_c++;
+		for (size_t j = m->count; t; j++) {
+			t += a->d[i + j];
+			a->d[i + j] = t;
+			t >>= 32;
 		}
 	}
-
-	// copy out
-	_c = c + pa;
-	for (x = 0; x < pa + 1; x++) a->d[x] = *_c++;
-	for (; x < oldused; x++) a->d[x] = 0;
-	a->count = pa + 1;
+	a->count = m->count + 1;
+	memmove(a->d, a->d + m->count, a->count * 4);
+	memset(a->d + a->count, 0, (MPN_SIZE - a->count) * 4);
 	mpn_clamp(a);
-
-	/* if A >= m then A = A - m */
 	if (mpn_cmp(a, m) >= 0) mpn_sub(a, m);
 }
 
 // montgomery ladder based G^X mod P → Y
 // Based on work by Marc Joye, Sung-Ming Yen, “The Montgomery Powering Ladder”, Cryptographic Hardware and Embedded Systems, CHES 2002.
-// See also TAOCP, exercise 4.3.1–41.
+// See also TAOCP, exercise 4.3.1–41. Knuth has w₀w′ mod b = 1 with subtraction in Montgomery reduction, while here we adopt the convention of P₀m mod 2³² = −1 with addition in REDC.
 void mpn_powmod(const struct mpn *G, const struct mpn *X, const struct mpn *P, struct mpn *Y) {
-	struct mpn R[2];
-	uint32_t mp;
-	int bitcnt, digidx, y;
+	struct mpn R[2] = {0};
 
-	/* now setup montgomery */
-	{
-		// Fast inversion mod 2^k
-		//   XA ≡ 1 (mod 2^n) ⟹ (X(2 − XA))A ≡ 1 (mod 2^2n)
-		uint32_t b = P->d[0];
+	// P₀ and 2³² (the base) must be coprime.
+	assert(P->count && P->d[0] & 1);
+	// Fast inversion mod 2ⁿ.
+	//   P₀m′ ≡ 1 (mod 2ⁿ)  ⟹  P₀(m′(2 − P₀m′)) ≡ 1 (mod 2²ⁿ)
+	uint32_t m_prime = P->d[0];
+	m_prime += ((P->d[0] + 2) & 4) << 1; // P₀m′ mod 2⁴ = 1
+	m_prime *= 2 - P->d[0] * m_prime; // P₀m′ mod 2⁸ = 1
+	m_prime *= 2 - P->d[0] * m_prime; // P₀m′ mod 2¹⁶ = 1
+	m_prime *= 2 - P->d[0] * m_prime; // P₀m′ mod 2³² = 1
+	m_prime = -m_prime; // P₀m′ mod 2³² = −1
 
-		assert(b & 1);
+	// R₀ ← 2³²ⁿ mod P
+	R[0].count = P->count + 1;
+	R[0].d[P->count] = 1;
+	mpn_div(R, P, NULL);
 
-		uint32_t x = (((b + 2) & 4) << 1) + b; /* here x*a==1 mod 2**4 */
-		x *= 2 - b * x; /* here x*a==1 mod 2**8 */
-		x *= 2 - b * x; /* here x*a==1 mod 2**16 */
-		x *= 2 - b * x; /* here x*a==1 mod 2**32 */
-
-		/* rho = -1/m mod b */
-		mp = ((uint64_t) 1 << 32) - x;
-	}
-
-	memset(R, 0, sizeof(R));
-
-	/* now we need R mod m */
-	// computes a = B**n mod b without division or multiplication useful for normalizing numbers in a Montgomery system.
-	{
-		/* how many bits of last digit does P use */
-		int bits = mpn_count_bits(P);
-
-		/* compute A = B^(n-1) * 2^(bits-1) */
-		if (P->count > 1) {
-			R->count = P->count;
-			R->d[P->count - 1] = (uint32_t) 1 << (bits - 1);
-		} else {
-			R->count = 1;
-			R->d[0] = 1;
-			bits = 1;
-		}
-
-		/* now compute C = A * B mod P */
-		for (int x = bits - 1; x < 32; x++) {
-			// R *= 2
-			uint32_t r = 0;
-
-			/* carry */
-			for (size_t x = 0; x < R->count; x++) {
-				/* get what will be the *next* carry bit from the MSB of the current digit */
-				uint32_t rr = R->d[x] >> 31;
-
-				/* now shift up this digit, add in the carry [from the previous] */
-				R->d[x] <<= 1;
-				R->d[x] |= r;
-
-				/* copy the carry that would be from the source digit into the next iteration */
-				r = rr;
-			}
-
-			// new leading digit?
-			// add a MSB which is always 1 at this point
-			if (r && R->count != MPN_SIZE - 1) R->d[R->count++] = 1;
-
-			if (mpn_cmp(R, P) >= 0) mpn_sub(R, P);
-		}
-	}
-
-	/* now set R[1] to G * R[0] mod m */
+if(0){
+	memcpy(&R[1], R, sizeof(struct mpn));
+}else{
+	/* set R[1] to G * R[0] mod m′ */
 	memcpy(&R[1], G, sizeof(struct mpn));
 	mpn_div(&R[1], P, NULL);
-  mpn_mul(&R[1], &R[0]);
-  mpn_div(&R[1], P, NULL);
+	mpn_mul(&R[1], &R[0]);
+	mpn_div(&R[1], P, NULL);
+}
 
 	/* for j = t-1 downto 0 do
         r_!k = R0*R1; r_k = r_k^2 */
 
-	/* set initial mode and bit cnt */
-	bitcnt = 1;
-	uint32_t buf = 0;
-	digidx = X->count - 1;
+	for (size_t digidx = X->count * 32 + mpn_count_bits(X) - 1; digidx != SIZE_MAX; digidx--) {
+		// Fetch the next most significant bit in the exponent into y.
+		int y = (X->d[digidx / 32] >> (digidx & 31)) & 1;
 
-	for (;;) {
-		// grab next digit as required
-		if (!--bitcnt) {
-			// if digidx == -1 we are out of digits so break
-			if (digidx == -1) break;
-			// read next digit and reset bitcnt
-			buf = X->d[digidx--];
-			bitcnt = 32;
+if(0){
+		mpn_mul(R, R);
+		mpn_redc(R, P, m_prime);
+		if (y) {
+			mpn_mul(R, &R[1]);
+			mpn_redc(R, P, m_prime);
 		}
-
-		// grab the next msb from the exponent
-		y = (buf >> 31) & 1;
-		buf <<= 1;
-
-		// do ops
+}else{
 		mpn_mul(&R[y ^ 1], &R[y]);
-		mpn_redc(&R[y ^ 1], P, mp);
+		mpn_redc(&R[y ^ 1], P, m_prime);
 		mpn_mul(&R[y], &R[y]);
-		mpn_redc(&R[y], P, mp);
+		mpn_redc(&R[y], P, m_prime);
+}
 	}
 
-	mpn_redc(&R[0], P, mp);
+	mpn_redc(R, P, m_prime);
 	memcpy(Y, R, sizeof(struct mpn));
 }
 
