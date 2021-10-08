@@ -85,6 +85,19 @@ size_t align_to(size_t value, size_t alignment) {
 	return value;
 }
 
+void write_eof(FILE *f) {
+	#ifdef _WIN32
+		int _fileno(FILE *stream);
+		int _chsize(int fd, long size);
+		_chsize(_fileno(f), ftell(f));
+	#else
+		int fileno(FILE *stream);
+		off_t ftello(FILE *stream);
+		int ftruncate(int fildes, off_t length);
+		ftruncate(fileno(f), ftello(f));
+	#endif
+}
+
 size_t read_file(const char *filename, void **ptr) {
 	FILE *f = fopen(filename, "rb");
 	if (!f) {
