@@ -153,3 +153,21 @@ size_t copy_file(FILE *f, const char *filename) {
 	}
 	return sz;
 }
+
+// Press Delete n times and go to EOF.
+void snap_file(FILE *f, size_t n) {
+	static unsigned char* buffer = NULL;
+	if (!buffer) buffer = malloc(65536);
+
+	if (!n) return;
+	bool done = false;
+	do {
+		long pos = ftell(f);
+		fseek(f, n, SEEK_CUR);
+		size_t sz = fread(buffer, 1, 65536, f);
+		done = feof(f);
+		fseek(f, pos, SEEK_SET);
+		fwrite(buffer, 1, sz, f);
+	} while (!done);
+	write_eof(f);
+}
