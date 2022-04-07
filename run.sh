@@ -1,8 +1,7 @@
 #!/bin/sh
 set -e
 nasm something.asm -o something.bin
-[ -n "$1" ] && gcc -o slzprog.exe slzprog.c
-./slzprog.exe
+go run .
 chmod +x slzprog-output.exe
 ./slzprog-output.exe
 errorlevel=$?
