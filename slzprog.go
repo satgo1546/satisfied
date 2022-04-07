@@ -3,8 +3,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"unicode/utf16"
 )
@@ -39,82 +41,62 @@ var dos_program = []byte{
 }
 
 var rsrc_rva, rsrc_offset, rsrc_sz int64
-var rsrc_stack [100]struct {
-	entry_offset             int64
-	number_of_entries        int
-	number_of_entries_so_far int
-}
-var rsrc_stack_top int
-var rsrc_dir_end int64
-var rsrc_dir_sz int64
-var rsrc_data_end int64
 
-func rsrc_begin_directory(f *os.File, number_of_entries int) {
-	f.Seek(rsrc_dir_end, os.SEEK_SET)
-	rsrc_dir_end += 16 + 8*int64(number_of_entries)
-	assert(rsrc_dir_end <= rsrc_offset+rsrc_dir_sz)
-	write32(f, 0)                         // unused Characteristics
-	write32(f, 0)                         // unused TimeDateStamp
-	write32(f, 0)                         // unused MajorVersion and MinorVersion
-	write16(f, 0)                         // NumberOfNamedEntries
-	write16(f, uint16(number_of_entries)) // NumberOfIdEntries
-	rsrc_stack[rsrc_stack_top].entry_offset, _ = f.Seek(0, os.SEEK_CUR)
-	rsrc_stack[rsrc_stack_top].number_of_entries = number_of_entries
-	rsrc_stack[rsrc_stack_top].number_of_entries_so_far = 0
-	rsrc_stack_top++
+type RSRCDirectoryEntry struct {
+	ID uint16
+	// An entry can either be a directory or data.
+	IsDirectory bool
+	Directory   []RSRCDirectoryEntry
+	Data        []byte
 }
 
-func rsrc_end_directory(f *os.File) {
-	rsrc_stack_top--
-	assert(rsrc_stack[rsrc_stack_top].number_of_entries == rsrc_stack[rsrc_stack_top].number_of_entries_so_far)
+func rsrc_add_directory_entry(f *os.File, entry *RSRCDirectoryEntry) {
+	if entry.IsDirectory {
+		write32(f, 0)                            // unused Characteristics
+		write32(f, 0)                            // unused TimeDateStamp
+		write32(f, 0)                            // unused MajorVersion and MinorVersion
+		write16(f, 0)                            // NumberOfNamedEntries
+		write16(f, uint16(len(entry.Directory))) // NumberOfIdEntries
+		// Reserve space for entry metadata.
+		entries_begin, _ := f.Seek(0, io.SeekCurrent)
+		f.Seek(int64(len(entry.Directory))*8, io.SeekCurrent)
+		for i, subentry := range entry.Directory {
+			// Append the entry.
+			subentry_begin, _ := f.Seek(0, io.SeekCurrent)
+			rsrc_add_directory_entry(f, &subentry)
+			subentry_end, _ := f.Seek(0, io.SeekCurrent)
+			// Fill in the metadata.
+			f.Seek(entries_begin+int64(i)*8, io.SeekStart)
+			offset := uint32(subentry_begin - rsrc_offset)
+			if subentry.IsDirectory {
+				offset |= 0x80000000
+			}
+			write32(f, uint32(subentry.ID)) // Name
+			write32(f, offset)              // OffsetToData
+			f.Seek(align_to(subentry_end, 4), io.SeekStart)
+		}
+	} else {
+		subentry_begin, _ := f.Seek(0, io.SeekCurrent)
+		write32(f, uint32(rsrc_rva+(subentry_begin+16-rsrc_offset))) // data RVA
+		write32(f, uint32(len(entry.Data)))                          // Size
+		write32(f, 0)                                                // CodePage
+		write32(f, 0)                                                // Reserved
+		f.Write(entry.Data)
+	}
 }
 
-func rsrc_add_directory_entry(f *os.File, id uint16) {
-	f.Seek(rsrc_stack[rsrc_stack_top-1].entry_offset, 0)
-	rsrc_stack[rsrc_stack_top-1].entry_offset += 8
-	rsrc_stack[rsrc_stack_top-1].number_of_entries_so_far++
-	write32(f, uint32(id)) // Name
-	// Assume the child to be a directory. If it is really data, this field will be set again in rsrc_begin_data().
-	write32(f, uint32(0x80000000|(rsrc_dir_end-rsrc_offset))) // OffsetToData
-}
-
-var rsrc_data_begin int64
-
-func rsrc_begin_data(f *os.File) {
-	assert(rsrc_data_begin == 0)
-	f.Seek(-4, 1)
-	rsrc_dir_end = align_to(rsrc_dir_end, 4)
-	write32(f, uint32(rsrc_dir_end-rsrc_offset))
-	f.Seek(rsrc_dir_end, 0)
-	rsrc_dir_end += 16
-	write32(f, uint32(rsrc_rva+(rsrc_data_end-rsrc_offset))) // data RVA
-	write32(f, 0x55aa)                                       // Size (to be determined)
-	write32(f, 0)                                            // CodePage
-	write32(f, 0)                                            // Reserved
-	write32(f, uint32(rsrc_data_end-rsrc_offset))
-	f.Seek(rsrc_data_end, 0)
-	rsrc_data_begin = rsrc_data_end
-}
-
-func rsrc_end_data(f *os.File) {
-	assert(rsrc_data_begin != 0)
-	rsrc_data_end, _ = f.Seek(0, os.SEEK_CUR)
-	assert(rsrc_data_end <= rsrc_offset+rsrc_sz)
-	f.Seek(rsrc_dir_end-12, 0)
-	write32(f, uint32(rsrc_data_end-rsrc_data_begin))
-	rsrc_data_begin = 0
-}
-
-func rsrc_write_string_table(f *os.File, str []string) {
+func rsrc_write_string_table(str []string) []byte {
 	assert(len(str) <= 16)
+	var f bytes.Buffer
 	for _, str := range str {
 		str := utf16.Encode([]rune(str))
-		write16(f, uint16(len(str)))
-		binary.Write(f, binary.LittleEndian, str)
+		write16(&f, uint16(len(str)))
+		binary.Write(&f, binary.LittleEndian, str)
 	}
 	for i := len(str); i < 16; i++ {
-		write16(f, 0)
+		write16(&f, 0)
 	}
+	return f.Bytes()
 }
 
 const IAT_ENTRY_SZ = 0x4
@@ -168,8 +150,8 @@ func main() {
 	// DOS program.
 	f.Write(dos_program)
 
-	/* PE signature. */
-	f.Seek(pe_offset, 0)
+	// PE signature.
+	f.Seek(pe_offset, io.SeekStart)
 	writestrn(f, "PE", 4)
 
 	num_sections := 4
@@ -208,7 +190,6 @@ func main() {
 	rsrc_rva = align_to(text_rva+text_sz, SEC_ALIGN)
 	rsrc_offset = align_to(text_offset+text_sz, FILE_ALIGN)
 	rsrc_sz = 4096
-	rsrc_dir_sz = 512
 
 	/* Optional header, part 1: standard fields */
 	write16(f, 0x10b)                    /* Magic: PE32 */
@@ -245,41 +226,41 @@ func main() {
 	write32(f, 16)                                            /* NumberOfRvaAndSizes */
 
 	/* Optional header, part 3: data directories. */
+	write32(f, 0) // Export Table.
 	write32(f, 0)
-	write32(f, 0)                            /* Export Table. */
-	write32(f, uint32(import_dir_table_rva)) /* Import Table. */
+	write32(f, uint32(import_dir_table_rva)) // Import Table.
 	write32(f, uint32(import_dir_table_sz))
-	write32(f, uint32(rsrc_rva))
-	write32(f, uint32(rsrc_sz)) /* Resource Table. */
+	write32(f, uint32(rsrc_rva)) // Resource Table.
+	write32(f, uint32(rsrc_sz))
+	write32(f, 0) // Exception Table.
 	write32(f, 0)
-	write32(f, 0) /* Exception Table. */
+	write32(f, 0) // Certificate Table.
 	write32(f, 0)
-	write32(f, 0) /* Certificate Table. */
+	write32(f, 0) // Base Relocation Table.
 	write32(f, 0)
-	write32(f, 0) /* Base Relocation Table. */
+	write32(f, 0) // Debug.
 	write32(f, 0)
-	write32(f, 0) /* Debug. */
+	write32(f, 0) // Architecture.
 	write32(f, 0)
-	write32(f, 0) /* Architecture. */
+	write32(f, 0) // Global Ptr.
 	write32(f, 0)
-	write32(f, 0) /* Global Ptr. */
+	write32(f, 0) // TLS Table.
 	write32(f, 0)
-	write32(f, 0) /* TLS Table. */
+	write32(f, 0) // Load Config Table.
 	write32(f, 0)
-	write32(f, 0) /* Load Config Table. */
+	write32(f, 0) // Bound Import.
 	write32(f, 0)
-	write32(f, 0)               /* Bound Import. */
-	write32(f, uint32(iat_rva)) /* Import Address Table. */
+	write32(f, uint32(iat_rva)) // Import Address Table.
 	write32(f, uint32(iat_sz))
+	write32(f, 0) // Delay Import Descriptor.
 	write32(f, 0)
-	write32(f, 0) /* Delay Import Descriptor. */
+	write32(f, 0) // CLR Runtime Header.
 	write32(f, 0)
-	write32(f, 0) /* CLR Runtime Header. */
+	write32(f, 0) // (Reserved).
 	write32(f, 0)
-	write32(f, 0) /* (Reserved). */
 
 	// Section header #1: .idata
-	writestr8(f, ".idata")                             /* Name */
+	writestrn(f, ".idata", 8)                          /* Name */
 	write32(f, uint32(idata_sz))                       /* VirtualSize */
 	write32(f, uint32(idata_rva))                      /* VirtualAddress */
 	write32(f, uint32(align_to(idata_sz, FILE_ALIGN))) /* SizeOfRawData */
@@ -291,7 +272,7 @@ func main() {
 	write32(f, 0xc0000040)                             /* Characteristics: data, read, write */
 
 	// Section header #2: .bss
-	writestr8(f, ".bss")        /* Name */
+	writestrn(f, ".bss", 8)     /* Name */
 	write32(f, uint32(bss_sz))  /* VirtualSize */
 	write32(f, uint32(bss_rva)) /* VirtualAddress */
 	write32(f, 0)               /* SizeOfRawData */
@@ -303,7 +284,7 @@ func main() {
 	write32(f, 0xc0000080)      /* Characteristics: uninit. data, read, write */
 
 	// Section header #3: .text
-	writestr8(f, ".text")                             /* Name */
+	writestrn(f, ".text", 8)                          /* Name */
 	write32(f, uint32(text_sz))                       /* VirtualSize */
 	write32(f, uint32(text_rva))                      /* VirtualAddress */
 	write32(f, uint32(align_to(text_sz, FILE_ALIGN))) /* SizeOfRawData */
@@ -315,7 +296,7 @@ func main() {
 	write32(f, 0x60000020)                            /* Characteristics: code, read, execute */
 
 	// Section header #4: .rsrc
-	writestr8(f, ".rsrc")                             /* Name */
+	writestrn(f, ".rsrc", 8)                          /* Name */
 	write32(f, uint32(rsrc_sz))                       /* VirtualSize */
 	write32(f, uint32(rsrc_rva))                      /* VirtualAddress */
 	write32(f, uint32(align_to(rsrc_sz, FILE_ALIGN))) /* SizeOfRawData */
@@ -327,7 +308,7 @@ func main() {
 	write32(f, 0x40000040)                            /* Characteristics: data, read */
 
 	/* Write .idata segment. */
-	f.Seek(idata_offset, 0)
+	f.Seek(idata_offset, io.SeekStart)
 
 	/* Import Address Table (IAT):
 	   (Same as the Import Lookup Table) */
@@ -356,114 +337,87 @@ func main() {
 	}
 	write32(f, 0)
 
-	/* Hint/Name Table */
-	write16(f, 0)
-	writestr20(f, "ExitProcess")
-	write16(f, 0)
-	writestr20(f, "GetLastError")
-	write16(f, 0)
-	writestr20(f, "LoadLibraryExA")
-	write16(f, 0)
-	writestr20(f, "GetProcAddress")
-	write16(f, 0)
-	writestr20(f, "FreeLibrary")
-	write16(f, 0)
-	writestr20(f, "GetStdHandle")
-	write16(f, 0)
-	writestr20(f, "ReadFile")
-	write16(f, 0)
-	writestr20(f, "WriteFile")
-	write16(f, 0)
-	writestr20(f, "OutputDebugStringA")
-	write16(f, 0)
-	writestr20(f, "HeapAlloc")
-	write16(f, 0)
-	writestr20(f, "GetProcessHeap")
-	write16(f, 0)
-	writestr20(f, "HeapFree")
-	/* Put the dll name here too; we've got to write it somewhere. */
-	writestr20(f, "kernel32.dll")
+	// Hint/Name Table
+	for _, name := range []string{
+		"ExitProcess",
+		"GetLastError",
+		"LoadLibraryExA",
+		"GetProcAddress",
+		"FreeLibrary",
+		"GetStdHandle",
+		"ReadFile",
+		"WriteFile",
+		"OutputDebugStringA",
+		"HeapAlloc",
+		"GetProcessHeap",
+		"HeapFree",
+	} {
+		write16(f, 0)
+		assert(len(name) <= 19)
+		writestrn(f, name, 20)
+	}
+	// Put the dll name here too; we've got to write it somewhere.
+	writestrn(f, "kernel32.dll", 20)
 
 	// Write .text segment.
-	f.Seek(text_offset, 0)
+	f.Seek(text_offset, io.SeekStart)
 	f.Write(windows_program)
 
 	// Write .rsrc segment.
-	f.Seek(rsrc_offset, 0)
+	f.Seek(rsrc_offset, io.SeekStart)
 	for i := int64(0); i < rsrc_sz; i++ {
 		write8(f, 0)
 	}
-	rsrc_dir_end = rsrc_offset
-	rsrc_data_end = rsrc_offset + rsrc_dir_sz
-	rsrc_begin_directory(f, 4)
-	rsrc_add_directory_entry(f, 16)
-	rsrc_begin_directory(f, 1)
-	rsrc_add_directory_entry(f, 1)
-	rsrc_begin_directory(f, 1)
-	rsrc_add_directory_entry(f, 2052)
-	rsrc_begin_data(f)
-	// Version info goes here.
-	rsrc_end_data(f)
-	rsrc_end_directory(f)
-	rsrc_end_directory(f)
-	rsrc_add_directory_entry(f, 6)
-	rsrc_begin_directory(f, 1)
-	rsrc_add_directory_entry(f, 1)
-	rsrc_begin_directory(f, 3)
-	// 字符串表中的字符一般不是零结尾的，但是只要一个隔一个放，中间为空字符串计数的零就有用了。
-	rsrc_add_directory_entry(f, 1033)
-	rsrc_begin_data(f)
-	rsrc_write_string_table(f, []string{"Grass.", "", "More grass."})
-	rsrc_end_data(f)
-	rsrc_add_directory_entry(f, 1041)
-	rsrc_begin_data(f)
-	rsrc_write_string_table(f, []string{"くさ。", "", "もっとくさ。"})
-	rsrc_end_data(f)
-	rsrc_add_directory_entry(f, 2052)
-	rsrc_begin_data(f)
-	rsrc_write_string_table(f, []string{"草。", "", "更草。"})
-	rsrc_end_data(f)
-	rsrc_end_directory(f)
-	rsrc_end_directory(f)
-	rsrc_add_directory_entry(f, 10)
-	rsrc_begin_directory(f, 1)
-	rsrc_add_directory_entry(f, 1)
-	rsrc_begin_directory(f, 1)
-	rsrc_add_directory_entry(f, 0)
-	rsrc_begin_data(f)
-	for i := 0; i < 256; i++ {
-		write8(f, uint8(i))
-	}
-	rsrc_end_data(f)
-	rsrc_end_directory(f)
-	rsrc_end_directory(f)
-	rsrc_add_directory_entry(f, 24)
-	rsrc_begin_directory(f, 1)
-	rsrc_add_directory_entry(f, 1)
-	rsrc_begin_directory(f, 1)
-	rsrc_add_directory_entry(f, 0)
-	rsrc_begin_data(f)
-	fmt.Fprintf(f, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
-	fmt.Fprintf(f, "<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">")
-	fmt.Fprintf(f, "<compatibility xmlns=\"urn:schemas-microsoft-com:compatibility.v1\"><application>")
-	fmt.Fprintf(f,
-		"<supportedOS Id=\"{e2011457-1546-43c5-a5fe-008deee3d3f0}\"/>"+ // Windows Vista
-			"<supportedOS Id=\"{35138b9a-5d96-4fbd-8e2d-a2440225f93a}\"/>"+ // Windows 7
-			"<supportedOS Id=\"{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}\"/>"+ // Windows 8
-			"<supportedOS Id=\"{1f676c76-80e1-4239-95bb-83d0f6d0da78}\"/>"+ // Windows 8.1
-			"<supportedOS Id=\"{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}\"/>", // Windows 10
-	)
-	fmt.Fprintf(f, "</application></compatibility>")
-	fmt.Fprintf(f, "<dependency><dependentAssembly><assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0\" processorArchitecture=\"*\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\" /></dependentAssembly></dependency>")
-	fmt.Fprintf(f, "<application xmlns=\"urn:schemas-microsoft-com:asm.v3\"><windowsSettings><dpiAware xmlns=\"http://schemas.microsoft.com/SMI/2005/WindowsSettings\">true</dpiAware><dpiAwareness xmlns=\"http://schemas.microsoft.com/SMI/2016/WindowsSettings\">PerMonitorV2</dpiAwareness></windowsSettings></application>")
-	fmt.Fprintf(f, "<trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\"><security><requestedPrivileges><requestedExecutionLevel level=\"asInvoker\" uiAccess=\"false\"/></requestedPrivileges></security></trustInfo>")
-	fmt.Fprintf(f, "</assembly>")
-	rsrc_end_data(f)
-	rsrc_end_directory(f)
-	rsrc_end_directory(f)
-	rsrc_end_directory(f)
+	f.Seek(rsrc_offset, io.SeekStart)
+	rsrc_add_directory_entry(f, &RSRCDirectoryEntry{IsDirectory: true, Directory: []RSRCDirectoryEntry{
+		{ID: 16, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+			{ID: 1, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+				{ID: 2052, IsDirectory: false, Data: []byte{
+					// Version info goes here.
+				}},
+			}},
+		}},
+		{ID: 6, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+			{ID: 1, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+				// 字符串表中的字符一般不是零结尾的，但是只要一个隔一个放，中间为空字符串计数的零就有用了。
+				{ID: 1033, IsDirectory: false, Data: rsrc_write_string_table([]string{"Grass.", "", "More grass."})},
+				{ID: 1041, IsDirectory: false, Data: rsrc_write_string_table([]string{"くさ。", "", "もっとくさ。"})},
+				{ID: 2052, IsDirectory: false, Data: rsrc_write_string_table([]string{"草。", "", "更草。"})},
+			}},
+		}},
+		{ID: 10, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+			{ID: 1, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+				{ID: 0, IsDirectory: false, Data: func() []byte {
+					var b [256]byte
+					for i := 0; i < 256; i++ {
+						b[i] = byte(i)
+					}
+					return b[:]
+				}()},
+			}},
+		}},
+		{ID: 24, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+			{ID: 1, IsDirectory: true, Directory: []RSRCDirectoryEntry{
+				{ID: 0, IsDirectory: false, Data: []byte(
+					"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+						"<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">" +
+						"<compatibility xmlns=\"urn:schemas-microsoft-com:compatibility.v1\"><application>" +
+						"<supportedOS Id=\"{e2011457-1546-43c5-a5fe-008deee3d3f0}\"/>" + // Windows Vista
+						"<supportedOS Id=\"{35138b9a-5d96-4fbd-8e2d-a2440225f93a}\"/>" + // Windows 7
+						"<supportedOS Id=\"{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}\"/>" + // Windows 8
+						"<supportedOS Id=\"{1f676c76-80e1-4239-95bb-83d0f6d0da78}\"/>" + // Windows 8.1
+						"<supportedOS Id=\"{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}\"/>" + // Windows 10
+						"</application></compatibility>" +
+						"<dependency><dependentAssembly><assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0\" processorArchitecture=\"*\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\" /></dependentAssembly></dependency>" +
+						"<application xmlns=\"urn:schemas-microsoft-com:asm.v3\"><windowsSettings><dpiAware xmlns=\"http://schemas.microsoft.com/SMI/2005/WindowsSettings\">true</dpiAware><dpiAwareness xmlns=\"http://schemas.microsoft.com/SMI/2016/WindowsSettings\">PerMonitorV2</dpiAwareness></windowsSettings></application>" +
+						"<trustInfo xmlns=\"urn:schemas-microsoft-com:asm.v2\"><security><requestedPrivileges><requestedExecutionLevel level=\"asInvoker\" uiAccess=\"false\"/></requestedPrivileges></security></trustInfo>" +
+						"</assembly>",
+				)},
+			}},
+		}},
+	}})
 
-	f.Seek(rsrc_offset+rsrc_sz, 0)
+	f.Seek(rsrc_offset+rsrc_sz, io.SeekStart)
 	// VS_VERSIONINFO
 	fmt.Fprintf(f, "Data after this point is useless.")
 	write16(f, 123 /*some*/)   // wLength

@@ -5,6 +5,8 @@ import (
 	"io"
 )
 
+// I provide myself with this out of laziness.
+// https://go.dev/doc/faq#assertions
 func assert(predicate bool) {
 	if !predicate {
 		panic("assert")
@@ -23,22 +25,13 @@ func write32(f io.Writer, x uint32) {
 	binary.Write(f, binary.LittleEndian, x)
 }
 
+// Write out a string, padded to n bytes.
 func writestrn(f io.Writer, str string, n int) {
 	assert(len(str) <= n)
 	f.Write([]byte(str))
 	for i := len(str); i < n; i++ {
 		write8(f, 0)
 	}
-}
-
-// Write a string to file, padded to 8 bytes.
-func writestr8(f io.Writer, str string) {
-	writestrn(f, str, 8)
-}
-
-// Write a string to file, null-terminated and padded to 20 bytes.
-func writestr20(f io.Writer, str string) {
-	writestrn(f, str, 20)
 }
 
 func align_to(value int64, alignment int64) int64 {
