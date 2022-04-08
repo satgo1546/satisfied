@@ -40,6 +40,66 @@ var dos_program = []byte{
 	'\r', 0x0b, '\n', 0x09, '\a', 0x0d,
 }
 
+type IDataDirectoryEntry struct {
+	LibraryName string // DLL name
+	Symbols     []string
+}
+
+var idata_rva, idata_sz int64
+
+func IDataWrite(f io.WriteSeeker, entries []IDataDirectoryEntry) {
+	// Calculate file offsets for the the import address table and the hint/name table.
+	entries_begin, _ := f.Seek(0, io.SeekCurrent)
+	iat_begin := entries_begin + (int64(len(entries))+1)*20
+	names_begin := iat_begin
+	for _, entry := range entries {
+		names_begin += (int64(len(entry.Symbols)) + 1) * 4
+	}
+
+	var names bytes.Buffer
+
+	// IMAGE_IMPORT_DESCRIPTOR (import directory table)
+	// ILT can be zero. The Delphi compiler creates such executables.
+	// https://7shi.hateblo.jp/entry/2012/08/07/200241
+	iat_end := iat_begin
+	for _, entry := range entries {
+		write32(f, 0)      // OriginalFirstThunk/Characteristics (import lookup table RVA)
+		write32(f, 0)      // TimeDateStamp
+		write32(f, 0)      // ForwarderChain
+		write32(f, uint32( // Name
+			int64(names.Len())+names_begin-entries_begin+idata_rva))
+		write32(f, uint32(iat_end-entries_begin+idata_rva)) // FirstThunk (import address table RVA)
+		names.WriteString(entry.LibraryName)
+		names.WriteByte(0)
+		iat_end += (int64(len(entry.Symbols)) + 1) * 4
+	}
+	assert(iat_end == names_begin)
+	write32(f, 0)
+	write32(f, 0)
+	write32(f, 0)
+	write32(f, 0)
+	write32(f, 0)
+
+	// import address table
+	for _, entry := range entries {
+		for _, name := range entry.Symbols {
+			if names.Len()%2 != 0 {
+				names.WriteByte(0) // padding for hint
+			}
+			write32(f, uint32(int64(names.Len())+names_begin-entries_begin+idata_rva))
+			write16(&names, 0)      // Hint
+			names.WriteString(name) // Name
+			names.WriteByte(0)
+		}
+		write32(f, 0)
+	}
+
+	// Hint/name table
+	iat_end, _ = f.Seek(0, io.SeekCurrent)
+	assert(iat_end == names_begin)
+	f.Write(names.Bytes())
+}
+
 var rsrc_rva, rsrc_offset, rsrc_sz int64
 
 type RSRCDirectoryEntry struct {
@@ -157,27 +217,8 @@ func RSRCMakeVersionInfoStruct(key string, valueIsText bool, value []byte, child
 	return b
 }
 
-const IAT_ENTRY_SZ = 0x4
-const IMPORT_DIR_ENTRY_SZ = 0x14
-const NAME_TABLE_ENTRY_SZ = 22
-
 const SEC_ALIGN = 0x1000
 const FILE_ALIGN = 512
-
-var imports = []string{
-	"ExitProcess",
-	"GetLastError",
-	"LoadLibraryExA",
-	"GetProcAddress",
-	"FreeLibrary",
-	"GetStdHandle",
-	"ReadFile",
-	"WriteFile",
-	"OutputDebugStringA",
-	"HeapAlloc",
-	"GetProcessHeap",
-	"HeapFree",
-}
 
 func main() {
 	windows_program, _ := os.ReadFile("something.bin")
@@ -238,16 +279,9 @@ func main() {
 
 	headers_sz := pe_offset + 0xf8 + int64(num_sections)*0x28
 
-	idata_rva := align_to(headers_sz, SEC_ALIGN)
+	idata_rva = align_to(headers_sz, SEC_ALIGN)
 	idata_offset := align_to(headers_sz, FILE_ALIGN)
-	import_dir_table_rva := idata_rva
-	import_dir_table_sz := int64(2 * IMPORT_DIR_ENTRY_SZ)
-	iat_rva := import_dir_table_rva + import_dir_table_sz
-	iat_sz := (int64(len(imports)) + 1) * IAT_ENTRY_SZ
-	name_table_rva := iat_rva + iat_sz
-	dll_name_rva := name_table_rva + int64(len(imports))*NAME_TABLE_ENTRY_SZ
-	name_table_sz := int64(len(imports))*NAME_TABLE_ENTRY_SZ + 16
-	idata_sz := name_table_rva + name_table_sz - idata_rva
+	idata_sz = 4096
 
 	bss_rva := align_to(idata_rva+idata_sz, SEC_ALIGN)
 	bss_sz := int64(4096)
@@ -293,10 +327,11 @@ func main() {
 	write32(f, 16)                                            // NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES
 
 	// IMAGE_DATA_DIRECTORY
+	// Sizes are vague. They are probably just useless fields.
 	write32(f, 0) // Export Table.
 	write32(f, 0)
-	write32(f, uint32(import_dir_table_rva)) // Import Table.
-	write32(f, uint32(import_dir_table_sz))
+	write32(f, uint32(idata_rva)) // Import Table.
+	write32(f, uint32(idata_sz))
 	write32(f, uint32(rsrc_rva)) // Resource Table.
 	write32(f, uint32(rsrc_sz))
 	write32(f, 0) // Exception Table.
@@ -315,10 +350,12 @@ func main() {
 	write32(f, 0)
 	write32(f, 0) // Load Config Table.
 	write32(f, 0)
+	// On useless bound imports and IAT directories:
+	// https://stackoverflow.com/a/62850912
 	write32(f, 0) // Bound Import.
 	write32(f, 0)
-	write32(f, uint32(iat_rva)) // Import Address Table.
-	write32(f, uint32(iat_sz))
+	write32(f, 0) // unused IMAGE_DIRECTORY_ENTRY_IAT
+	write32(f, 0)
 	write32(f, 0) // Delay Import Descriptor.
 	write32(f, 0)
 	write32(f, 0) // CLR Runtime Header.
@@ -376,35 +413,22 @@ func main() {
 
 	/* Write .idata segment. */
 	f.Seek(idata_offset, io.SeekStart)
-
-	// IMAGE_IMPORT_DESCRIPTOR (import directory table)
-	// kernel32.dll
-	write32(f, 0)                    // OriginalFirstThunk/Characteristics (import lookup table RVA)
-	write32(f, 0)                    // TimeDateStamp
-	write32(f, 0)                    // ForwarderChain
-	write32(f, uint32(dll_name_rva)) // Name
-	write32(f, uint32(iat_rva))      // FirstThunk (import address table RVA)
-
-	write32(f, 0)
-	write32(f, 0)
-	write32(f, 0)
-	write32(f, 0)
-	write32(f, 0)
-
-	// Import Address Table
-	for i := range imports {
-		write32(f, uint32(name_table_rva+int64(i)*NAME_TABLE_ENTRY_SZ))
-	}
-	write32(f, 0)
-
-	// Hint/Name Table
-	for _, name := range imports {
-		write16(f, 0)
-		assert(len(name) <= 19)
-		writestrn(f, name, 20)
-	}
-	// Put the dll name here too; we've got to write it somewhere.
-	writestrn(f, "kernel32.dll", 20)
+	IDataWrite(f, []IDataDirectoryEntry{
+		{LibraryName: "kernel32.dll", Symbols: []string{
+			"ExitProcess",
+			"GetLastError",
+			"LoadLibraryExA",
+			"GetProcAddress",
+			"FreeLibrary",
+			"GetStdHandle",
+			"ReadFile",
+			"WriteFile",
+			"OutputDebugStringA",
+			"HeapAlloc",
+			"GetProcessHeap",
+			"HeapFree",
+		}},
+	})
 
 	// Write .text segment.
 	f.Seek(text_offset, io.SeekStart)
