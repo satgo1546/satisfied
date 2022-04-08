@@ -50,7 +50,14 @@ type RSRCDirectoryEntry struct {
 	Data        []byte
 }
 
-func rsrc_add_directory_entry(f *os.File, entry *RSRCDirectoryEntry) {
+func LPCWSTR(str string) []byte {
+	var f bytes.Buffer
+	binary.Write(&f, binary.LittleEndian, utf16.Encode([]rune(str)))
+	write16(&f, 0)
+	return f.Bytes()
+}
+
+func RSRCWriteDirectoryEntry(f *os.File, entry *RSRCDirectoryEntry) {
 	if entry.IsDirectory {
 		write32(f, 0)                            // unused Characteristics
 		write32(f, 0)                            // unused TimeDateStamp
@@ -63,7 +70,7 @@ func rsrc_add_directory_entry(f *os.File, entry *RSRCDirectoryEntry) {
 		for i, subentry := range entry.Directory {
 			// Append the entry.
 			subentry_begin, _ := f.Seek(0, io.SeekCurrent)
-			rsrc_add_directory_entry(f, &subentry)
+			RSRCWriteDirectoryEntry(f, &subentry)
 			subentry_end, _ := f.Seek(0, io.SeekCurrent)
 			// Fill in the metadata.
 			f.Seek(entries_begin+int64(i)*8, io.SeekStart)
@@ -85,7 +92,7 @@ func rsrc_add_directory_entry(f *os.File, entry *RSRCDirectoryEntry) {
 	}
 }
 
-func rsrc_write_string_table(str []string) []byte {
+func RSRCMakeStringTable(str []string) []byte {
 	assert(len(str) <= 16)
 	var f bytes.Buffer
 	for _, str := range str {
@@ -97,6 +104,57 @@ func rsrc_write_string_table(str []string) []byte {
 		write16(&f, 0)
 	}
 	return f.Bytes()
+}
+
+func RSRCMakeFixedFileInfo(major, minor, build, revision uint16) []byte {
+	// VS_FIXEDFILEINFO
+	var f bytes.Buffer
+	write32(&f, 0xfeef04bd) // dwSignature
+	write32(&f, 0)          // dwStrucVersion
+	write16(&f, minor)      // dwFileVersionMS
+	write16(&f, major)      //
+	write16(&f, revision)   // dwFileVersionLS
+	write16(&f, build)      //
+	write16(&f, minor)      // dwProductVersionMS
+	write16(&f, major)      //
+	write16(&f, revision)   // dwProductVersionLS
+	write16(&f, build)      //
+	write32(&f, 0)          // dwFileFlagsMask
+	write32(&f, 0)          // dwFileFlags
+	write32(&f, 0x00040004) // dwFileOS = VOS_NT_WINDOWS32
+	write32(&f, 0x00000001) // dwFileType = VFT_APP
+	write32(&f, 0)          // dwFileSubtype
+	write32(&f, 0)          // dwFileDateMS
+	write32(&f, 0)          // dwFileDateLS
+	return f.Bytes()
+}
+
+// VS_VERSIONINFO, StringFileInfo, StringTable, String, VarFileInfo and Var all start with wLength, wValueLength, wType, szKey and Padding.
+// https://docs.microsoft.com/en-us/windows/win32/menurc/version-information-structures
+func RSRCMakeVersionInfoStruct(key string, valueIsText bool, value []byte, children [][]byte) []byte {
+	var f bytes.Buffer
+	write16(&f, 0x55aa) // wLength (to be determined)
+	if valueIsText {
+		write16(&f, uint16(len(value)/2)) // wValueLength
+		write16(&f, 1)                    // wType
+	} else {
+		write16(&f, uint16(len(value))) // wValueLength
+		write16(&f, 0)                  // wType
+	}
+	f.Write(LPCWSTR(key)) // szKey
+	if f.Len()%4 != 0 {
+		write16(&f, 0) // Padding1
+	}
+	f.Write(value) // Value
+	for _, child := range children {
+		if f.Len()%4 != 0 {
+			write16(&f, 0) // Padding2
+		}
+		f.Write(child) // Children
+	}
+	b := f.Bytes()
+	binary.LittleEndian.PutUint16(b, uint16(len(b))) // wLength
+	return b
 }
 
 const IAT_ENTRY_SZ = 0x4
@@ -369,20 +427,40 @@ func main() {
 		write8(f, 0)
 	}
 	f.Seek(rsrc_offset, io.SeekStart)
-	rsrc_add_directory_entry(f, &RSRCDirectoryEntry{IsDirectory: true, Directory: []RSRCDirectoryEntry{
+	RSRCWriteDirectoryEntry(f, &RSRCDirectoryEntry{IsDirectory: true, Directory: []RSRCDirectoryEntry{
 		{ID: 16, IsDirectory: true, Directory: []RSRCDirectoryEntry{
 			{ID: 1, IsDirectory: true, Directory: []RSRCDirectoryEntry{
-				{ID: 2052, IsDirectory: false, Data: []byte{
-					// Version info goes here.
-				}},
+				{ID: 0, IsDirectory: false, Data: RSRCMakeVersionInfoStruct("VS_VERSION_INFO", false,
+					RSRCMakeFixedFileInfo(114, 514, 1919, 810),
+					[][]byte{
+						RSRCMakeVersionInfoStruct("StringFileInfo", false, nil, [][]byte{
+							RSRCMakeVersionInfoStruct(fmt.Sprintf("%08X", 0x040904b0), false, nil, [][]byte{
+								RSRCMakeVersionInfoStruct("CompanyName", true, LPCWSTR("公司名称"), nil),
+								RSRCMakeVersionInfoStruct("FileDescription", true, LPCWSTR("文件描述"), nil),
+								RSRCMakeVersionInfoStruct("FileVersion", true, LPCWSTR("文件版本"), nil),
+								RSRCMakeVersionInfoStruct("InternalName", true, LPCWSTR("内部名称"), nil),
+								RSRCMakeVersionInfoStruct("LegalCopyright", true, LPCWSTR("\u00a9 版权所有"), nil),
+								RSRCMakeVersionInfoStruct("OriginalFilename", true, LPCWSTR("slzprog-output.exe"), nil),
+								RSRCMakeVersionInfoStruct("ProductName", true, LPCWSTR("产品名称"), nil),
+								RSRCMakeVersionInfoStruct("ProductVersion", true, LPCWSTR("产品版本"), nil),
+							}),
+						}),
+						RSRCMakeVersionInfoStruct("VarFileInfo", false, nil, [][]byte{
+							RSRCMakeVersionInfoStruct("Translation", false, []byte{0x09, 0x04, 0xb0, 0x04}, nil),
+						}),
+					},
+				)},
 			}},
 		}},
 		{ID: 6, IsDirectory: true, Directory: []RSRCDirectoryEntry{
 			{ID: 1, IsDirectory: true, Directory: []RSRCDirectoryEntry{
 				// 字符串表中的字符一般不是零结尾的，但是只要一个隔一个放，中间为空字符串计数的零就有用了。
-				{ID: 1033, IsDirectory: false, Data: rsrc_write_string_table([]string{"Grass.", "", "More grass."})},
-				{ID: 1041, IsDirectory: false, Data: rsrc_write_string_table([]string{"くさ。", "", "もっとくさ。"})},
-				{ID: 2052, IsDirectory: false, Data: rsrc_write_string_table([]string{"草。", "", "更草。"})},
+				// Strings stored in string tables are not zero-terminated generally.
+				// However, one can interleave useful strings with empty ones.
+				// The zero-valued length counters then serve as terminators neatly.
+				{ID: 1033, IsDirectory: false, Data: RSRCMakeStringTable([]string{"Grass.", "", "More grass."})},
+				{ID: 1041, IsDirectory: false, Data: RSRCMakeStringTable([]string{"くさ。", "", "もっとくさ。"})},
+				{ID: 2052, IsDirectory: false, Data: RSRCMakeStringTable([]string{"草。", "", "更草。"})},
 			}},
 		}},
 		{ID: 10, IsDirectory: true, Directory: []RSRCDirectoryEntry{
@@ -418,44 +496,7 @@ func main() {
 	}})
 
 	f.Seek(rsrc_offset+rsrc_sz, io.SeekStart)
-	// VS_VERSIONINFO
 	fmt.Fprintf(f, "Data after this point is useless.")
-	write16(f, 123 /*some*/)   // wLength
-	write16(f, 456 /*length*/) // wValueLength
-	write16(f, 0)              // wType
-	write16(f, 'V')            // szKey
-	write16(f, 'S')
-	write16(f, '_')
-	write16(f, 'V')
-	write16(f, 'E')
-	write16(f, 'R')
-	write16(f, 'S')
-	write16(f, 'I')
-	write16(f, 'O')
-	write16(f, 'N')
-	write16(f, '_')
-	write16(f, 'I')
-	write16(f, 'N')
-	write16(f, 'F')
-	write16(f, 'O')
-	write16(f, 0)
-	write16(f, 0) // Padding1
-	// VS_FIXEDFILEINFO
-	write32(f, 0xfeef04bd) // dwSignature
-	write32(f, 0x00010000) // dwStrucVersion
-	write32(f, 0)          // dwFileVersionMS
-	write32(f, 0)          // dwFileVersionLS
-	write32(f, 0)          // dwProductVersionMS
-	write32(f, 0)          // dwProductVersionLS
-	write32(f, 0x00000010) // dwFileFlagsMask = VS_FF_INFOINFERRED
-	write32(f, 0x00000000) // dwFileFlags
-	write32(f, 0x00000004) // dwFileOS = VOS__WINDOWS32
-	write32(f, 0x00000001) // dwFileType = VFT_APP
-	write32(f, 0)          // dwFileSubtype
-	write32(f, 0)          // dwFileDateMS
-	write32(f, 0)          // dwFileDateLS
-	write16(f, 0)          // Padding2
-	write16(f, 0)          // Children
 
 	err = f.Close()
 	if err != nil {
