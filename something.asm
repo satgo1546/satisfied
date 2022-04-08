@@ -17,18 +17,18 @@ bits 32
 	%endif
 	call %1
 %endmacro
-ExitProcess	equ 0x00401000
-GetLastError	equ 0x00401004
-LoadLibraryExA	equ 0x00401008
-GetProcAddress	equ 0x0040100c
-FreeLibrary	equ 0x00401010
-GetStdHandle	equ 0x00401014
-ReadFile	equ 0x00401018
-WriteFile	equ 0x0040101c
-OutputDebugStringA	equ 0x00401020
-HeapAlloc	equ 0x00401024
-GetProcessHeap	equ 0x00401028
-HeapFree	equ 0x0040102c
+ExitProcess	equ 0x00401028
+GetLastError	equ 0x0040102c
+LoadLibraryExA	equ 0x00401030
+GetProcAddress	equ 0x00401034
+FreeLibrary	equ 0x00401038
+GetStdHandle	equ 0x0040103c
+ReadFile	equ 0x00401040
+WriteFile	equ 0x00401044
+OutputDebugStringA	equ 0x00401048
+HeapAlloc	equ 0x0040104c
+GetProcessHeap	equ 0x00401050
+HeapFree	equ 0x00401054
 
 STD_INPUT_HANDLE equ -10
 STD_OUTPUT_HANDLE equ -11

@@ -57,7 +57,7 @@ func LPCWSTR(str string) []byte {
 	return f.Bytes()
 }
 
-func RSRCWriteDirectoryEntry(f *os.File, entry *RSRCDirectoryEntry) {
+func RSRCWriteDirectoryEntry(f io.WriteSeeker, entry *RSRCDirectoryEntry) {
 	if entry.IsDirectory {
 		write32(f, 0)                            // unused Characteristics
 		write32(f, 0)                            // unused TimeDateStamp
@@ -159,12 +159,25 @@ func RSRCMakeVersionInfoStruct(key string, valueIsText bool, value []byte, child
 
 const IAT_ENTRY_SZ = 0x4
 const IMPORT_DIR_ENTRY_SZ = 0x14
-const IMPORT_LOOKUP_TBL_ENTRY_SZ = IAT_ENTRY_SZ
 const NAME_TABLE_ENTRY_SZ = 22
 
-const IMAGE_BASE = 0x00400000
 const SEC_ALIGN = 0x1000
-const FILE_ALIGN = 0x200
+const FILE_ALIGN = 512
+
+var imports = []string{
+	"ExitProcess",
+	"GetLastError",
+	"LoadLibraryExA",
+	"GetProcAddress",
+	"FreeLibrary",
+	"GetStdHandle",
+	"ReadFile",
+	"WriteFile",
+	"OutputDebugStringA",
+	"HeapAlloc",
+	"GetProcessHeap",
+	"HeapFree",
+}
 
 func main() {
 	windows_program, _ := os.ReadFile("something.bin")
@@ -214,28 +227,26 @@ func main() {
 
 	num_sections := 4
 
-	/* COFF header. */
-	write16(f, 0x14c)                /* Machine: IMAGE_FILE_MACHINE_I386 */
-	write16(f, uint16(num_sections)) /* NumberOfSections */
-	write32(f, 0)                    /* TimeDateStamp */
-	write32(f, 0)                    /* PointerToSymbolTable */
-	write32(f, 0)                    /* NumberOfSymbols */
-	write16(f, 0xe0)                 /* SizeOfOptionalHeader */
-	write16(f, 0x103)                /* Characteristics: no relocations, exec, 32-bit */
+	// IMAGE_FILE_HEADER
+	write16(f, 0x014c)               // Machine: IMAGE_FILE_MACHINE_I386
+	write16(f, uint16(num_sections)) // NumberOfSections ≤ 96
+	write32(f, 0)                    // unused TimeDateStamp
+	write32(f, 0)                    // PointerToSymbolTable
+	write32(f, 0)                    // NumberOfSymbols
+	write16(f, 224)                  // SizeOfOptionalHeader
+	write16(f, 0x103)                // Characteristics = IMAGE_FILE_RELOCS_STRIPPED | IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_32BIT_MACHINE
 
 	headers_sz := pe_offset + 0xf8 + int64(num_sections)*0x28
 
 	idata_rva := align_to(headers_sz, SEC_ALIGN)
 	idata_offset := align_to(headers_sz, FILE_ALIGN)
-	num_imports := 12
-	iat_rva := idata_rva
-	iat_sz := (int64(num_imports) + 1) * IAT_ENTRY_SZ
-	import_dir_table_rva := iat_rva + iat_sz
+	import_dir_table_rva := idata_rva
 	import_dir_table_sz := int64(2 * IMPORT_DIR_ENTRY_SZ)
-	import_lookup_table_rva := import_dir_table_rva + import_dir_table_sz
-	name_table_rva := import_lookup_table_rva + (int64(num_imports)+1)*IMPORT_LOOKUP_TBL_ENTRY_SZ
-	dll_name_rva := name_table_rva + int64(num_imports)*NAME_TABLE_ENTRY_SZ
-	name_table_sz := int64(num_imports)*NAME_TABLE_ENTRY_SZ + 16
+	iat_rva := import_dir_table_rva + import_dir_table_sz
+	iat_sz := (int64(len(imports)) + 1) * IAT_ENTRY_SZ
+	name_table_rva := iat_rva + iat_sz
+	dll_name_rva := name_table_rva + int64(len(imports))*NAME_TABLE_ENTRY_SZ
+	name_table_sz := int64(len(imports))*NAME_TABLE_ENTRY_SZ + 16
 	idata_sz := name_table_rva + name_table_sz - idata_rva
 
 	bss_rva := align_to(idata_rva+idata_sz, SEC_ALIGN)
@@ -249,41 +260,39 @@ func main() {
 	rsrc_offset = align_to(text_offset+text_sz, FILE_ALIGN)
 	rsrc_sz = 4096
 
-	/* Optional header, part 1: standard fields */
-	write16(f, 0x10b)                    /* Magic: PE32 */
-	write8(f, 0)                         /* MajorLinkerVersion */
-	write8(f, 0)                         /* MinorLinkerVersion */
-	write32(f, uint32(text_sz))          /* SizeOfCode */
-	write32(f, uint32(rsrc_sz+idata_sz)) /* SizeOfInitializedData */
-	write32(f, uint32(bss_sz))           /* SizeOfUninitializedData */
-	write32(f, uint32(text_rva))         /* AddressOfEntryPoint */
-	write32(f, uint32(text_rva))         /* BaseOfCode */
-	write32(f, uint32(idata_rva))        /* BaseOfData */
+	// IMAGE_OPTIONAL_HEADER32
+	write16(f, 0x10b)                                         // Magic = IMAGE_NT_OPTIONAL_HDR32_MAGIC
+	write8(f, 0)                                              // unused MajorLinkerVersion
+	write8(f, 0)                                              // unused MinorLinkerVersion
+	write32(f, uint32(text_sz))                               // ∑ SizeOfCode
+	write32(f, uint32(rsrc_sz+idata_sz))                      // ∑ SizeOfInitializedData
+	write32(f, uint32(bss_sz))                                // ∑ SizeOfUninitializedData
+	write32(f, uint32(text_rva))                              // AddressOfEntryPoint
+	write32(f, uint32(text_rva))                              // BaseOfCode
+	write32(f, 0)                                             // BaseOfData
+	write32(f, 0x00400000)                                    // ImageBase
+	write32(f, SEC_ALIGN)                                     // SectionAlignment
+	write32(f, FILE_ALIGN)                                    // FileAlignment
+	write16(f, 3)                                             // MajorOperatingSystemVersion
+	write16(f, 10)                                            // MinorOperatingSystemVersion
+	write16(f, 0)                                             // unused MajorImageVersion
+	write16(f, 0)                                             // unused MinorImageVersion
+	write16(f, 3)                                             // MajorSubsystemVersion
+	write16(f, 10)                                            // MinorSubsystemVersion
+	write32(f, 0)                                             // unused Win32VersionValue
+	write32(f, uint32(align_to(rsrc_rva+rsrc_sz, SEC_ALIGN))) // SizeOfImage
+	write32(f, uint32(align_to(headers_sz, FILE_ALIGN)))      // SizeOfHeaders
+	write32(f, 0)                                             // Checksum
+	write16(f, 3)                                             // Subsystem = IMAGE_SUBSYSTEM_WINDOWS_CUI
+	write16(f, 0)                                             // DllCharacteristics
+	write32(f, 0x100000)                                      // SizeOfStackReserve
+	write32(f, 0x1000)                                        // SizeOfStackCommit
+	write32(f, 0x100000)                                      // SizeOfHeapReserve
+	write32(f, 0x1000)                                        // SizeOfHeapCommit
+	write32(f, 0)                                             // unused LoadFlags
+	write32(f, 16)                                            // NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES
 
-	/* Optional header, part 2: Windows-specific fields */
-	write32(f, IMAGE_BASE)                                    /* ImageBase */
-	write32(f, SEC_ALIGN)                                     /* SectionAlignment */
-	write32(f, FILE_ALIGN)                                    /* FileAlignment */
-	write16(f, 3)                                             /* MajorOperatingSystemVersion */
-	write16(f, 10)                                            /* MinorOperatingSystemVersion */
-	write16(f, 0)                                             /* MajorImageVersion */
-	write16(f, 0)                                             /* MinorImageVersion */
-	write16(f, 3)                                             /* MajorSubsystemVersion */
-	write16(f, 10)                                            /* MinorSubsystemVersion */
-	write32(f, 0)                                             /* Win32VersionValue*/
-	write32(f, uint32(align_to(rsrc_rva+rsrc_sz, SEC_ALIGN))) /* SizeOfImage */
-	write32(f, uint32(align_to(headers_sz, FILE_ALIGN)))      /* SizeOfHeaders */
-	write32(f, 0)                                             /* Checksum */
-	write16(f, 3)                                             /* Subsystem: Console */
-	write16(f, 0)                                             /* DllCharacteristics */
-	write32(f, 0x100000)                                      /* SizeOfStackReserve */
-	write32(f, 0x1000)                                        /* SizeOfStackCommit */
-	write32(f, 0x100000)                                      /* SizeOfHeapReserve */
-	write32(f, 0x1000)                                        /* SizeOfHeapCommit */
-	write32(f, 0)                                             /* LoadFlags */
-	write32(f, 16)                                            /* NumberOfRvaAndSizes */
-
-	/* Optional header, part 3: data directories. */
+	// IMAGE_DATA_DIRECTORY
 	write32(f, 0) // Export Table.
 	write32(f, 0)
 	write32(f, uint32(import_dir_table_rva)) // Import Table.
@@ -314,20 +323,20 @@ func main() {
 	write32(f, 0)
 	write32(f, 0) // CLR Runtime Header.
 	write32(f, 0)
-	write32(f, 0) // (Reserved).
+	write32(f, 0) // reserved
 	write32(f, 0)
 
-	// Section header #1: .idata
-	writestrn(f, ".idata", 8)                          /* Name */
-	write32(f, uint32(idata_sz))                       /* VirtualSize */
-	write32(f, uint32(idata_rva))                      /* VirtualAddress */
-	write32(f, uint32(align_to(idata_sz, FILE_ALIGN))) /* SizeOfRawData */
-	write32(f, uint32(idata_offset))                   /* PointerToRawData */
-	write32(f, 0)                                      /* PointerToRelocations */
-	write32(f, 0)                                      /* PointerToLinenumbers */
-	write16(f, 0)                                      /* NumberOfRelocations */
-	write16(f, 0)                                      /* NumberOfLinenumbers */
-	write32(f, 0xc0000040)                             /* Characteristics: data, read, write */
+	// IMAGE_SECTION_HEADER
+	writestrn(f, ".idata", 8)                          // Name
+	write32(f, uint32(idata_sz))                       // VirtualSize
+	write32(f, uint32(idata_rva))                      // VirtualAddress
+	write32(f, uint32(align_to(idata_sz, FILE_ALIGN))) // SizeOfRawData
+	write32(f, uint32(idata_offset))                   // PointerToRawData
+	write32(f, 0)                                      // PointerToRelocations
+	write32(f, 0)                                      // PointerToLinenumbers
+	write16(f, 0)                                      // NumberOfRelocations
+	write16(f, 0)                                      // NumberOfLinenumbers
+	write32(f, 0xc0000040)                             // Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE
 
 	// Section header #2: .bss
 	writestrn(f, ".bss", 8)     /* Name */
@@ -368,48 +377,28 @@ func main() {
 	/* Write .idata segment. */
 	f.Seek(idata_offset, io.SeekStart)
 
-	/* Import Address Table (IAT):
-	   (Same as the Import Lookup Table) */
-	for i := 0; i < num_imports; i++ {
-		write32(f, uint32(name_table_rva+int64(i)*NAME_TABLE_ENTRY_SZ))
-	}
-	write32(f, 0)
+	// IMAGE_IMPORT_DESCRIPTOR (import directory table)
+	// kernel32.dll
+	write32(f, 0)                    // OriginalFirstThunk/Characteristics (import lookup table RVA)
+	write32(f, 0)                    // TimeDateStamp
+	write32(f, 0)                    // ForwarderChain
+	write32(f, uint32(dll_name_rva)) // Name
+	write32(f, uint32(iat_rva))      // FirstThunk (import address table RVA)
 
-	/* Import Directory Table */
-	/* kernel32.dll */
-	write32(f, uint32(import_lookup_table_rva)) /* ILT RVA */
-	write32(f, 0)                               /* Time/Data Stamp */
-	write32(f, 0)                               /* Forwarder Chain */
-	write32(f, uint32(dll_name_rva))            /* Name RVA */
-	write32(f, uint32(iat_rva))                 /* Import Address Table RVA */
-	/* Null terminator */
 	write32(f, 0)
 	write32(f, 0)
 	write32(f, 0)
 	write32(f, 0)
 	write32(f, 0)
 
-	/* Import Lookup Table */
-	for i := 0; i < num_imports; i++ {
+	// Import Address Table
+	for i := range imports {
 		write32(f, uint32(name_table_rva+int64(i)*NAME_TABLE_ENTRY_SZ))
 	}
 	write32(f, 0)
 
 	// Hint/Name Table
-	for _, name := range []string{
-		"ExitProcess",
-		"GetLastError",
-		"LoadLibraryExA",
-		"GetProcAddress",
-		"FreeLibrary",
-		"GetStdHandle",
-		"ReadFile",
-		"WriteFile",
-		"OutputDebugStringA",
-		"HeapAlloc",
-		"GetProcessHeap",
-		"HeapFree",
-	} {
+	for _, name := range imports {
 		write16(f, 0)
 		assert(len(name) <= 19)
 		writestrn(f, name, 20)
