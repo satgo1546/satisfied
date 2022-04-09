@@ -268,80 +268,108 @@ func main() {
 	// DOS program.
 	f.Write(dos_program)
 
-	// PE signature.
-	f.Seek(pe_offset, io.SeekStart)
-	writestrn(f, "PE", 4)
-
-	num_sections := 4
-
-	// IMAGE_FILE_HEADER
-	write16(f, 0x014c)               // Machine: IMAGE_FILE_MACHINE_I386
-	write16(f, uint16(num_sections)) // NumberOfSections ≤ 96
-	write32(f, 0)                    // unused TimeDateStamp
-	write32(f, 0)                    // PointerToSymbolTable
-	write32(f, 0)                    // NumberOfSymbols
-	write16(f, 224)                  // SizeOfOptionalHeader
-	write16(f, 0x103)                // Characteristics = IMAGE_FILE_RELOCS_STRIPPED | IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_32BIT_MACHINE
-
-	headers_sz := pe_offset + 0xf8 + int64(num_sections)*0x28
-
 	idata.Name = ".idata"
 	idata.Characteristics = 0xc0000040 // IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE
-	idata.RVA = align_to(headers_sz, SEC_ALIGN)
-	idata.FilePos = align_to(headers_sz, FILE_ALIGN)
 	idata.Size = 4096
 
 	var bss PESection
 	bss.Name = ".bss"
 	bss.Characteristics = 0xc0000080 // uninit. data, read, write
-	bss.RVA = align_to(idata.RVA+idata.Size, SEC_ALIGN)
-	bss.FilePos = -1
-	bss.Size = int64(4096)
+	bss.Size = 4096
 
 	var text PESection
 	text.Name = ".text"
 	text.Characteristics = 0x60000020 // code, read, execute
-	text.RVA = align_to(bss.RVA+bss.Size, SEC_ALIGN)
-	text.FilePos = align_to(idata.FilePos+idata.Size, FILE_ALIGN)
 	text.Size = int64(len(windows_program))
 
 	rsrc.Name = ".rsrc"
 	rsrc.Characteristics = 0x40000040 // data, read
-	rsrc.RVA = align_to(text.RVA+text.Size, SEC_ALIGN)
-	rsrc.FilePos = align_to(text.FilePos+text.Size, FILE_ALIGN)
-	rsrc.Size = 4096
+	rsrc.Size = 4000
+
+	sections := []*PESection{&idata, &bss, &text, &rsrc}
+
+	headers_sz := pe_offset + 0xf8 + int64(len(sections))*0x28
+	{
+		section_rva := headers_sz
+		section_filepos := headers_sz
+		for _, section := range sections {
+			section_rva = align_to(section_rva, SEC_ALIGN)
+			section.RVA = section_rva
+			section_rva += section.Size
+
+			section_filepos = align_to(section_filepos, FILE_ALIGN)
+			if section.Characteristics&0x00000070 != 0 {
+				section.FilePos = section_filepos
+				section_filepos += section.Size
+			} else {
+				section.FilePos = -1
+			}
+		}
+
+		f.Seek(align_to(section_filepos, FILE_ALIGN)-1, io.SeekStart)
+		write8(f, 0)
+	}
+
+	// PE signature.
+	f.Seek(pe_offset, io.SeekStart)
+	writestrn(f, "PE", 4)
+
+	// IMAGE_FILE_HEADER
+	write16(f, 0x014c)                // Machine: IMAGE_FILE_MACHINE_I386
+	write16(f, uint16(len(sections))) // NumberOfSections ≤ 96
+	write32(f, 0)                     // unused TimeDateStamp
+	write32(f, 0)                     // PointerToSymbolTable
+	write32(f, 0)                     // NumberOfSymbols
+	write16(f, 224)                   // SizeOfOptionalHeader
+	write16(f, 0x103)                 // Characteristics = IMAGE_FILE_RELOCS_STRIPPED | IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_32BIT_MACHINE
 
 	// IMAGE_OPTIONAL_HEADER32
-	write16(f, 0x10b)                                           // Magic = IMAGE_NT_OPTIONAL_HDR32_MAGIC
-	write8(f, 0)                                                // unused MajorLinkerVersion
-	write8(f, 0)                                                // unused MinorLinkerVersion
-	write32(f, uint32(text.Size))                               // ∑ SizeOfCode
-	write32(f, uint32(rsrc.Size+idata.Size))                    // ∑ SizeOfInitializedData
-	write32(f, uint32(bss.Size))                                // ∑ SizeOfUninitializedData
-	write32(f, uint32(text.RVA))                                // AddressOfEntryPoint
-	write32(f, uint32(text.RVA))                                // BaseOfCode
-	write32(f, 0)                                               // BaseOfData
-	write32(f, 0x00400000)                                      // ImageBase
-	write32(f, SEC_ALIGN)                                       // SectionAlignment
-	write32(f, FILE_ALIGN)                                      // FileAlignment
-	write16(f, 3)                                               // MajorOperatingSystemVersion
-	write16(f, 10)                                              // MinorOperatingSystemVersion
-	write16(f, 0)                                               // unused MajorImageVersion
-	write16(f, 0)                                               // unused MinorImageVersion
-	write16(f, 3)                                               // MajorSubsystemVersion
-	write16(f, 10)                                              // MinorSubsystemVersion
-	write32(f, 0)                                               // unused Win32VersionValue
-	write32(f, uint32(align_to(rsrc.RVA+rsrc.Size, SEC_ALIGN))) // SizeOfImage
-	write32(f, uint32(align_to(headers_sz, FILE_ALIGN)))        // SizeOfHeaders
-	write32(f, 0)                                               // Checksum
-	write16(f, 3)                                               // Subsystem = IMAGE_SUBSYSTEM_WINDOWS_CUI
-	write16(f, 0)                                               // DllCharacteristics
-	write32(f, 0x100000)                                        // SizeOfStackReserve
-	write32(f, 0x1000)                                          // SizeOfStackCommit
-	write32(f, 0x100000)                                        // SizeOfHeapReserve
-	write32(f, 0x1000)                                          // SizeOfHeapCommit
-	write32(f, 0)                                               // unused LoadFlags
-	write32(f, 16)                                              // NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES
+	write16(f, 0x10b) // Magic = IMAGE_NT_OPTIONAL_HDR32_MAGIC
+	write8(f, 0)      // unused MajorLinkerVersion
+	write8(f, 0)      // unused MinorLinkerVersion
+	{
+		var SizeOfCode, SizeOfInitializedData, SizeOfUninitializedData int64
+		for _, section := range sections {
+			if section.Characteristics&0x00000020 != 0 { // IMAGE_SCN_CNT_CODE
+				SizeOfCode += section.Size
+			}
+			if section.Characteristics&0x00000040 != 0 { // IMAGE_SCN_CNT_INITIALIZED_DATA
+				SizeOfInitializedData += section.Size
+			}
+			if section.Characteristics&0x00000080 != 0 { // IMAGE_SCN_CNT_UNINITIALIZED_DATA
+				SizeOfUninitializedData += section.Size
+			}
+		}
+		write32(f, uint32(SizeOfCode))              // ∑ SizeOfCode
+		write32(f, uint32(SizeOfInitializedData))   // ∑ SizeOfInitializedData
+		write32(f, uint32(SizeOfUninitializedData)) // ∑ SizeOfUninitializedData
+	}
+	write32(f, uint32(text.RVA)) // AddressOfEntryPoint
+	write32(f, uint32(text.RVA)) // BaseOfCode
+	write32(f, 0)                // BaseOfData
+	write32(f, 0x00400000)       // ImageBase
+	write32(f, SEC_ALIGN)        // SectionAlignment
+	write32(f, FILE_ALIGN)       // FileAlignment
+	write16(f, 3)                // MajorOperatingSystemVersion
+	write16(f, 10)               // MinorOperatingSystemVersion
+	write16(f, 0)                // unused MajorImageVersion
+	write16(f, 0)                // unused MinorImageVersion
+	write16(f, 3)                // MajorSubsystemVersion
+	write16(f, 10)               // MinorSubsystemVersion
+	write32(f, 0)                // unused Win32VersionValue
+	write32(f, uint32(           // SizeOfImage
+		align_to(sections[len(sections)-1].RVA+sections[len(sections)-1].Size, SEC_ALIGN)))
+	write32(f, uint32( // SizeOfHeaders
+		align_to(headers_sz, FILE_ALIGN)))
+	write32(f, 0)        // Checksum
+	write16(f, 3)        // Subsystem = IMAGE_SUBSYSTEM_WINDOWS_CUI
+	write16(f, 0)        // DllCharacteristics
+	write32(f, 0x100000) // SizeOfStackReserve
+	write32(f, 0x1000)   // SizeOfStackCommit
+	write32(f, 0x100000) // SizeOfHeapReserve
+	write32(f, 0x1000)   // SizeOfHeapCommit
+	write32(f, 0)        // unused LoadFlags
+	write32(f, 16)       // NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES
 
 	// IMAGE_DATA_DIRECTORY
 	// Sizes are vague. They are probably just useless fields.
@@ -381,7 +409,7 @@ func main() {
 	write32(f, 0)
 
 	// IMAGE_SECTION_HEADER
-	for _, section := range []PESection{idata, bss, text, rsrc} {
+	for _, section := range sections {
 		writestrn(f, section.Name, 8)    // Name
 		write32(f, uint32(section.Size)) // VirtualSize
 		write32(f, uint32(section.RVA))  // VirtualAddress
@@ -396,7 +424,7 @@ func main() {
 		write32(f, 0)                       // PointerToLinenumbers
 		write16(f, 0)                       // NumberOfRelocations
 		write16(f, 0)                       // NumberOfLinenumbers
-		write32(f, section.Characteristics) // Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE
+		write32(f, section.Characteristics) // Characteristics
 	}
 
 	/* Write .idata segment. */
