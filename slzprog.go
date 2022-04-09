@@ -47,46 +47,46 @@ type IDataDirectoryEntry struct {
 
 var idata_rva, idata_sz int64
 
-func IDataWrite(f io.WriteSeeker, entries []IDataDirectoryEntry) {
-	// Calculate file offsets for the the import address table and the hint/name table.
-	entries_begin, _ := f.Seek(0, io.SeekCurrent)
-	iat_begin := entries_begin + (int64(len(entries))+1)*20
-	names_begin := iat_begin
+func IDataWrite(f io.Writer, entries []IDataDirectoryEntry) {
+	// Calculate offsets for the the import address table and the hint/name table.
+	iat_offset := (int64(len(entries)) + 1) * 20
+	names_offset := iat_offset
 	for _, entry := range entries {
-		names_begin += (int64(len(entry.Symbols)) + 1) * 4
+		names_offset += (int64(len(entry.Symbols)) + 1) * 4
 	}
 
+	// DLL names and hint/name table entries, to be written after IDT and IAT.
 	var names bytes.Buffer
 
 	// IMAGE_IMPORT_DESCRIPTOR (import directory table)
 	// ILT can be zero. The Delphi compiler creates such executables.
 	// https://7shi.hateblo.jp/entry/2012/08/07/200241
-	iat_end := iat_begin
+	iat_end := iat_offset
 	for _, entry := range entries {
 		write32(f, 0)      // OriginalFirstThunk/Characteristics (import lookup table RVA)
 		write32(f, 0)      // TimeDateStamp
 		write32(f, 0)      // ForwarderChain
 		write32(f, uint32( // Name
-			int64(names.Len())+names_begin-entries_begin+idata_rva))
-		write32(f, uint32(iat_end-entries_begin+idata_rva)) // FirstThunk (import address table RVA)
+			int64(names.Len())+names_offset+idata_rva))
+		write32(f, uint32(iat_end+idata_rva)) // FirstThunk (import address table RVA)
 		names.WriteString(entry.LibraryName)
 		names.WriteByte(0)
 		iat_end += (int64(len(entry.Symbols)) + 1) * 4
 	}
-	assert(iat_end == names_begin)
+	assert(iat_end == names_offset)
 	write32(f, 0)
 	write32(f, 0)
 	write32(f, 0)
 	write32(f, 0)
 	write32(f, 0)
 
-	// import address table
+	// IMAGE_THUNK_DATA32/PIMAGE_IMPORT_BY_NAME (import address table)
 	for _, entry := range entries {
 		for _, name := range entry.Symbols {
 			if names.Len()%2 != 0 {
-				names.WriteByte(0) // padding for hint
+				names.WriteByte(0) // padding for Hint
 			}
-			write32(f, uint32(int64(names.Len())+names_begin-entries_begin+idata_rva))
+			write32(f, uint32(int64(names.Len())+names_offset+idata_rva))
 			write16(&names, 0)      // Hint
 			names.WriteString(name) // Name
 			names.WriteByte(0)
@@ -94,9 +94,7 @@ func IDataWrite(f io.WriteSeeker, entries []IDataDirectoryEntry) {
 		write32(f, 0)
 	}
 
-	// Hint/name table
-	iat_end, _ = f.Seek(0, io.SeekCurrent)
-	assert(iat_end == names_begin)
+	// IMAGE_IMPORT_BY_NAME
 	f.Write(names.Bytes())
 }
 
@@ -435,10 +433,6 @@ func main() {
 	f.Write(windows_program)
 
 	// Write .rsrc segment.
-	f.Seek(rsrc_offset, io.SeekStart)
-	for i := int64(0); i < rsrc_sz; i++ {
-		write8(f, 0)
-	}
 	f.Seek(rsrc_offset, io.SeekStart)
 	RSRCWriteDirectoryEntry(f, &RSRCDirectoryEntry{IsDirectory: true, Directory: []RSRCDirectoryEntry{
 		{ID: 16, IsDirectory: true, Directory: []RSRCDirectoryEntry{
