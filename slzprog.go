@@ -226,15 +226,7 @@ func RSRCMakeVersionInfoStruct(key string, valueIsText bool, value []byte, child
 const SEC_ALIGN = 0x1000
 const FILE_ALIGN = 512
 
-func main() {
-	windows_program, _ := os.ReadFile("something.bin")
-
-	f, err := os.Create("slzprog-output.exe")
-	if err != nil {
-		fmt.Printf("os.Create: %v\n", err)
-		os.Exit(1)
-	}
-
+func PEWrite(f *os.File, windows_program []byte) {
 	dos_stub_sz := 64 + int64(len(dos_program))
 	pe_offset := align_to(dos_stub_sz, 8)
 
@@ -522,7 +514,35 @@ func main() {
 
 	f.Seek(rsrc.FilePos+rsrc.Size, io.SeekStart)
 	fmt.Fprintf(f, "Data after this point is useless.")
+}
 
+func main() {
+	f, err := os.Create("slzprog-output.exe")
+	if err != nil {
+		fmt.Printf("os.Create: %v\n", err)
+		os.Exit(1)
+	}
+	bytes := []byte{
+		0xb0, 114, // mov al, 114
+		0x0f, 0xb6, 0xc0, // movzx eax, al
+		0x50,                               // push eax
+		0xff, 0x15, 0x28, 0x10, 0x40, 0x00, // call [0x00401028]
+	}
+	PEWrite(f, bytes)
+	outputfp = os.Stdout
+	for _, top := range []*Node{
+		&Node{kind: AST_DECL, declvar: &Node{ty: &Type{kind: KIND_ARRAY, len: 5, ptr: &Type{kind: KIND_INT}}, varname: "x1"}, declinit: []*Node{&Node{kind: AST_INIT, initoff: 0, initval: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 1}, totype: &Type{kind: KIND_INT}}, &Node{kind: AST_INIT, initoff: 4, initval: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 2}, totype: &Type{kind: KIND_INT}}, &Node{kind: AST_INIT, initoff: 8, initval: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 3}, totype: &Type{kind: KIND_INT}}, &Node{kind: AST_INIT, initoff: 12, initval: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 4}, totype: &Type{kind: KIND_INT}}, &Node{kind: AST_INIT, initoff: 16, initval: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 5}, totype: &Type{kind: KIND_INT}}}},
+		&Node{kind: AST_DECL, declvar: &Node{ty: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}, varname: "p1"}, declinit: []*Node{&Node{kind: AST_INIT, initoff: 0, initval: &Node{kind: AST_CONV, ty: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}, operand: &Node{kind: AST_GVAR, varname: "x1"}}, totype: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}}}},
+		&Node{kind: AST_DECL, declvar: &Node{ty: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}, varname: "q1"}, declinit: []*Node{&Node{kind: AST_INIT, initoff: 0, initval: &Node{kind: '+', left: &Node{kind: AST_CONV, ty: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}, operand: &Node{kind: AST_GVAR, varname: "x1"}}, right: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 2}}, totype: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}}}},
+		&Node{kind: AST_DECL, declvar: &Node{ty: &Type{kind: KIND_INT}, varname: "x2"}, declinit: []*Node{&Node{kind: AST_INIT, initoff: 0, initval: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 7}, totype: &Type{kind: KIND_INT}}}},
+		&Node{kind: AST_DECL, declvar: &Node{ty: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}, varname: "p2"}, declinit: []*Node{&Node{kind: AST_INIT, initoff: 0, initval: &Node{kind: '+', left: &Node{kind: AST_ADDR, operand: &Node{kind: AST_GVAR, varname: "x2"}}, right: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 1}}, totype: &Type{kind: KIND_PTR, ptr: &Type{kind: KIND_INT}}}}},
+		&Node{kind: AST_FUNC, fname: "main", ty: &Type{kind: KIND_FUNC, params: []*Type{}, rettype: &Type{kind: KIND_INT}},
+			params: []*Node{}, body: &Node{kind: AST_COMPOUND_STMT, stmts: []*Node{&Node{kind: AST_IF, cond: &Node{kind: OP_NE, left: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 1}, right: &Node{kind: AST_DEREF, operand: &Node{kind: AST_GVAR, varname: "p1"}}}, then: &Node{kind: AST_RETURN, retval: &Node{kind: AST_CONV, ty: &Type{kind: KIND_INT}, operand: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 1}}}}, &Node{kind: AST_IF, cond: &Node{kind: OP_NE, left: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 3}, right: &Node{kind: AST_DEREF, operand: &Node{kind: AST_GVAR, varname: "q1"}}}, then: &Node{kind: AST_RETURN, retval: &Node{kind: AST_CONV, ty: &Type{kind: KIND_INT}, operand: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 1}}}}, &Node{kind: AST_IF, cond: &Node{kind: OP_NE, left: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 7}, right: &Node{kind: AST_DEREF, operand: &Node{kind: '+', left: &Node{kind: AST_GVAR, varname: "p2"}, right: &Node{kind: '-', left: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 0}, right: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 1}}}}}, then: &Node{kind: AST_RETURN, retval: &Node{kind: AST_CONV, ty: &Type{kind: KIND_INT}, operand: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 1}}}}, &Node{kind: AST_RETURN, retval: &Node{kind: AST_CONV, ty: &Type{kind: KIND_INT}, operand: &Node{kind: AST_LITERAL, ty: &Type{kind: KIND_INT}, ival: 114}}}}}},
+	} {
+		do_node2s(os.Stdout, top)
+		fmt.Println()
+		//emit_toplevel(top)
+	}
 	err = f.Close()
 	if err != nil {
 		fmt.Printf("Close: %v\n", err)
