@@ -134,8 +134,6 @@ const (
 	KIND_CHAR
 	KIND_SHORT
 	KIND_INT
-	KIND_LONG
-	KIND_LLONG
 	KIND_FLOAT
 	KIND_DOUBLE
 	KIND_LDOUBLE
@@ -148,11 +146,24 @@ const (
 	KIND_STUB
 )
 
+var type_void = &Type{kind: KIND_VOID, size: 0, align: 0}
+var type_bool = &Type{kind: KIND_BOOL, size: 1, align: 1, usig: true}
+var type_char = &Type{kind: KIND_CHAR, size: 1, align: 1, usig: false}
+var type_short = &Type{kind: KIND_SHORT, size: 2, align: 2, usig: false}
+var type_int = &Type{kind: KIND_INT, size: 4, align: 4, usig: false}
+var type_uchar = &Type{kind: KIND_CHAR, size: 1, align: 1, usig: true}
+var type_ushort = &Type{kind: KIND_SHORT, size: 2, align: 2, usig: true}
+var type_uint = &Type{kind: KIND_INT, size: 4, align: 4, usig: true}
+var type_float = &Type{kind: KIND_FLOAT, size: 4, align: 4, usig: false}
+var type_double = &Type{kind: KIND_DOUBLE, size: 8, align: 8, usig: false}
+var type_ldouble = &Type{kind: KIND_LDOUBLE, size: 8, align: 8, usig: false}
+var type_enum = &Type{kind: KIND_ENUM, size: 4, align: 4, usig: false}
+
 type Type struct {
-	kind     int
-	size     int
-	usig     bool // true if unsigned
-	isstatic bool
+	kind  int
+	size  int
+	align int
+	usig  bool // true if unsigned
 	// pointer or array
 	ptr *Type
 	// array length
@@ -290,16 +301,6 @@ func do_ty2s(dict map[*Type]bool, ty *Type) string {
 			return "unsigned"
 		}
 		return "int"
-	case KIND_LONG:
-		if ty.usig {
-			return "unsigned long"
-		}
-		return "long"
-	case KIND_LLONG:
-		if ty.usig {
-			return "unsigned long long"
-		}
-		return "long long"
 	case KIND_FLOAT:
 		return "float"
 	case KIND_DOUBLE:
@@ -371,10 +372,6 @@ func do_node2s(b io.Writer, node *Node) {
 			}
 		case KIND_INT:
 			fmt.Fprintf(b, "%d", node.ival)
-		case KIND_LONG:
-			fmt.Fprintf(b, "%dL", node.ival)
-		case KIND_LLONG:
-			fmt.Fprintf(b, "%dL", node.ival)
 		case KIND_FLOAT, KIND_DOUBLE, KIND_LDOUBLE:
 			fmt.Fprintf(b, "%f", node.fval)
 		case KIND_ARRAY:
@@ -544,20 +541,18 @@ func do_node2s(b io.Writer, node *Node) {
 // parse.c
 func is_inttype(ty *Type) bool {
 	switch ty.kind {
-	case KIND_BOOL, KIND_CHAR, KIND_SHORT, KIND_INT, KIND_LONG, KIND_LLONG:
+	case KIND_BOOL, KIND_CHAR, KIND_SHORT, KIND_INT:
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
 func is_flotype(ty *Type) bool {
 	switch ty.kind {
 	case KIND_FLOAT, KIND_DOUBLE, KIND_LDOUBLE:
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
 func boole(x bool) int {
@@ -574,13 +569,32 @@ func eval_struct_ref(node *Node, offset int) int {
 	return eval_intexpr(node, nil) + offset
 }
 
+func conv(node *Node) *Node {
+	if node == nil {
+		return nil
+	}
+	ty := node.ty
+	switch ty.kind {
+	case KIND_ARRAY:
+		// C11 6.3.2.1p3: An array of T is converted to a pointer to T.
+		return &Node{kind: AST_CONV, ty: &Type{kind: KIND_PTR, ptr: ty.ptr, size: 8, align: 8}, operand: node}
+	case KIND_FUNC:
+		// C11 6.3.2.1p4: A function designator is converted to a pointer to the function.
+		return &Node{kind: AST_ADDR, ty: &Type{kind: KIND_PTR, ptr: ty, size: 8, align: 8}, operand: node}
+	case KIND_SHORT, KIND_CHAR, KIND_BOOL:
+		// C11 6.3.1.1p2: The integer promotions
+		return &Node{kind: AST_CONV, ty: type_int, operand: node}
+	}
+	return node
+}
+
 func eval_intexpr(node *Node, addr **Node) int {
 	switch node.kind {
 	case AST_LITERAL:
 		if is_inttype(node.ty) {
 			return int(node.ival)
 		}
-		error("Integer expression expected, but got %#v", node)
+		goto err
 	case '!':
 		return boole(eval_intexpr(node.operand, addr) == 0)
 	case '~':
@@ -595,11 +609,11 @@ func eval_intexpr(node *Node, addr **Node) int {
 		}
 		fallthrough
 	case AST_GVAR:
-		/*if addr != nil {
+		if addr != nil {
 			*addr = conv(node)
 			return 0
-		}goto err*/
-		panic("GVAR")
+		}
+		goto err
 	case AST_DEREF:
 		if node.operand.ty.kind == KIND_PTR {
 			return eval_intexpr(node.operand, addr)
@@ -649,12 +663,10 @@ func eval_intexpr(node *Node, addr **Node) int {
 		return boole((eval_intexpr(node.left, addr) != 0) && (eval_intexpr(node.right, addr) != 0))
 	case OP_LOGOR:
 		return boole((eval_intexpr(node.left, addr) != 0) || (eval_intexpr(node.right, addr) != 0))
-	default:
-		goto err
 	}
 err:
 	error("Integer expression expected, but got %#v", node)
-	return 114514
+	panic("")
 }
 
 var make_label_count int
@@ -670,7 +682,7 @@ var MREGS = []string{"edi", "esi", "edx", "ecx", "r8d", "r9d"}
 var stackpos int
 var numgp int
 var numfp int
-var outputfp *os.File
+var outputfp io.Writer
 
 const REGAREA_SIZE = 176
 
@@ -678,9 +690,8 @@ func emit(format string, a ...any) {
 	emit_noindent("\t"+format, a...)
 }
 func emit_noindent(format string, a ...any) {
-	// Replace "#" with "%%" so that vfprintf prints out "#" as "%".
-	fmt.Fprintf(outputfp, strings.Replace(format, "#", "%%", -1), a...)
-	outputfp.WriteString("\n")
+	fmt.Fprintf(outputfp, format, a...)
+	outputfp.Write([]byte{'\n'})
 }
 
 func get_int_reg(ty *Type, r rune) string {
@@ -710,10 +721,9 @@ func get_int_reg(ty *Type, r rune) string {
 		} else {
 			return "rcx"
 		}
-	default:
-		error("Unknown data size: %#v: %d", ty, ty.size)
-		panic("")
 	}
+	error("Unknown data size: %#v: %d", ty, ty.size)
+	panic("")
 }
 
 func get_load_inst(ty *Type) string {
@@ -726,10 +736,9 @@ func get_load_inst(ty *Type) string {
 		return "movslq"
 	case 8:
 		return "mov"
-	default:
-		error("Unknown data size: %#v: %d", ty, ty.size)
-		panic("")
 	}
+	error("Unknown data size: %#v: %d", ty, ty.size)
+	panic("")
 }
 
 func align(n int, m int) int {
@@ -741,25 +750,25 @@ func align(n int, m int) int {
 }
 
 func push_xmm(reg int) {
-	emit("sub $8, #rsp")
+	emit("sub rsp, 8")
 	emit("movsd #xmm%d, (#rsp)", reg)
 	stackpos += 8
 }
 
 func pop_xmm(reg int) {
 	emit("movsd (#rsp), #xmm%d", reg)
-	emit("add $8, #rsp")
+	emit("add rsp, 8")
 	stackpos -= 8
 	assert(stackpos >= 0)
 }
 
 func push(reg string) {
-	emit("push #%s", reg)
+	emit("push %s", reg)
 	stackpos += 8
 }
 
 func pop(reg string) {
-	emit("pop #%s", reg)
+	emit("pop %s", reg)
 	stackpos -= 8
 	assert(stackpos >= 0)
 }
@@ -806,26 +815,19 @@ func emit_intcast(ty *Type) {
 	switch ty.kind {
 	case KIND_BOOL, KIND_CHAR:
 		if ty.usig {
-			emit("movzbq #al, #rax")
+			emit("movzx eax, al")
 		} else {
-			emit("movsbq #al, #rax")
+			emit("movsx eax, al")
 		}
 		return
 	case KIND_SHORT:
 		if ty.usig {
-			emit("movzwq #ax, #rax")
+			emit("movzx eax, ax")
 		} else {
-			emit("movswq #ax, #rax")
+			emit("movsx eax, ax")
 		}
 		return
 	case KIND_INT:
-		if ty.usig {
-			emit("mov #eax, #eax")
-		} else {
-			emit("cltq")
-		}
-		return
-	case KIND_LONG, KIND_LLONG:
 		return
 	}
 }
@@ -840,21 +842,21 @@ func emit_toint(ty *Type) {
 
 func emit_lload(ty *Type, base string, off int) {
 	if ty.kind == KIND_ARRAY {
-		emit("lea %d(#%s), #rax", off, base)
+		emit("lea rax, [%s+%d]", base, off)
 	} else if ty.kind == KIND_FLOAT {
 		emit("movss %d(#%s), #xmm0", off, base)
 	} else if ty.kind == KIND_DOUBLE || ty.kind == KIND_LDOUBLE {
 		emit("movsd %d(#%s), #xmm0", off, base)
 	} else {
 		inst := get_load_inst(ty)
-		emit("%s %d(#%s), #rax", inst, off, base)
+		emit("%s rax, [%s+%d]", inst, base, off)
 	}
 }
 
 func maybe_convert_bool(ty *Type) {
 	if ty.kind == KIND_BOOL {
-		emit("test #rax, #rax")
-		emit("setne #al")
+		emit("test eax, eax")
+		emit("setnz al")
 	}
 }
 
@@ -875,17 +877,17 @@ func emit_lsave(ty *Type, off int) {
 		maybe_convert_bool(ty)
 		reg := get_int_reg(ty, 'a')
 		addr := fmt.Sprintf("%d(%%rbp)", off)
-		emit("mov #%s, %s", reg, addr)
+		emit("mov %s, %s", addr, reg)
 	}
 }
 
 func do_emit_assign_deref(ty *Type, off int) {
-	emit("mov (#rsp), #rcx")
+	emit("mov rcx, [rsp]")
 	reg := get_int_reg(ty, 'c')
 	if off != 0 {
-		emit("mov #%s, %d(#rax)", reg, off)
+		emit("mov [rax+%d], %s", off, reg)
 	} else {
-		emit("mov #%s, (#rax)", reg)
+		emit("mov [rax], %s", reg)
 	}
 	pop("rax")
 }
@@ -903,15 +905,15 @@ func emit_pointer_arith(kind int, left *Node, right *Node) {
 	emit_expr(right)
 	size := left.ty.ptr.size
 	if size > 1 {
-		emit("imul $%d, #rax", size)
+		emit("imul rax, %d", size)
 	}
-	emit("mov #rax, #rcx")
+	emit("mov rcx, rax")
 	pop("rax")
 	switch kind {
 	case '+':
-		emit("add #rcx, #rax")
+		emit("add rax, rcx")
 	case '-':
-		emit("sub #rcx, #rax")
+		emit("sub rax, rcx")
 	default:
 		error("invalid operator '%d'", kind)
 	}
@@ -998,8 +1000,8 @@ func emit_to_bool(ty *Type) {
 		emit("setne #al")
 		pop_xmm(1)
 	} else {
-		emit("cmp $0, #rax")
-		emit("setne #al")
+		emit("cmp rax, 0")
+		emit("setne al")
 	}
 	emit("movzb #al, #eax")
 }
@@ -1020,19 +1022,14 @@ func emit_comp(inst string, usiginst string, node *Node) {
 		push("rax")
 		emit_expr(node.right)
 		pop("rcx")
-		kind := node.left.ty.kind
-		if kind == KIND_LONG || kind == KIND_LLONG {
-			emit("cmp #rax, #rcx")
-		} else {
-			emit("cmp #eax, #ecx")
-		}
+		emit("cmp ecx, eax")
 	}
 	if is_flotype(node.left.ty) || node.left.ty.usig {
-		emit("%s #al", usiginst)
+		emit("%s al", usiginst)
 	} else {
-		emit("%s #al", inst)
+		emit("%s al", inst)
 	}
-	emit("movzb #al, #eax")
+	emit("movzx eax, al")
 }
 
 func emit_binop_int_arith(node *Node) {
@@ -1164,16 +1161,13 @@ func emit_save_literal(node *Node, totype *Type, off int) {
 		emit("movb $%d, %d(#rbp)", node.ival, off)
 	case KIND_SHORT:
 		emit("movw $%d, %d(#rbp)", node.ival, off)
-	case KIND_INT:
+	case KIND_INT, KIND_PTR:
 		emit("movl $%d, %d(#rbp)", node.ival, off)
-	case KIND_LONG, KIND_LLONG, KIND_PTR:
-		emit("movl $%lu, %d(#rbp)", uint64(node.ival)&((1<<32)-1), off)
-		emit("movl $%lu, %d(#rbp)", uint64(node.ival)>>32, off+4)
 	case KIND_FLOAT:
-		emit("movl $%u, %d(#rbp)", math.Float32bits(float32(node.fval)), off)
+		emit("movl $%d, %d(#rbp)", math.Float32bits(float32(node.fval)), off)
 	case KIND_DOUBLE, KIND_LDOUBLE:
-		emit("movl $%lu, %d(#rbp)", math.Float64bits(node.fval)&((1<<32)-1), off)
-		emit("movl $%lu, %d(#rbp)", math.Float64bits(node.fval)>>32, off+4)
+		emit("movl $%d, %d(#rbp)", math.Float64bits(node.fval)&((1<<32)-1), off)
+		emit("movl $%d, %d(#rbp)", math.Float64bits(node.fval)>>32, off+4)
 	default:
 		error("internal error: <%#v> <%#v> <%d>", node, totype, off)
 	}
@@ -1302,12 +1296,8 @@ func emit_jmp(label string) {
 
 func emit_literal(node *Node) {
 	switch node.ty.kind {
-	case KIND_BOOL, KIND_CHAR, KIND_SHORT:
-		emit("mov $%u, #rax", node.ival)
-	case KIND_INT:
-		emit("mov $%u, #rax", node.ival)
-	case KIND_LONG, KIND_LLONG:
-		emit("mov $%lu, #rax", node.ival)
+	case KIND_BOOL, KIND_CHAR, KIND_SHORT, KIND_INT:
+		emit("mov eax, %d", node.ival)
 	case KIND_FLOAT:
 		if node.flabel == "" {
 			node.flabel = make_label()
@@ -1501,7 +1491,7 @@ func emit_func_call(node *Node) {
 
 	padding := stackpos%16 != 0
 	if padding {
-		emit("sub $8, #rsp")
+		emit("sub rsp, 8")
 		stackpos += 8
 	}
 
@@ -1519,21 +1509,21 @@ func emit_func_call(node *Node) {
 		pop("r11")
 	}
 	if ftype.hasva {
-		emit("mov $%u, #eax", len(floats))
+		emit("mov eax, %d", len(floats))
 	}
 
 	if isptr {
-		emit("call *#r11")
+		emit("call [r11]")
 	} else {
 		emit("call %s", node.fname)
 	}
 	maybe_booleanize_retval(node.ty)
 	if restsize > 0 {
-		emit("add $%d, #rsp", restsize)
+		emit("add rsp, %d", restsize)
 		stackpos -= restsize
 	}
 	if padding {
-		emit("add $8, #rsp")
+		emit("add rsp, 8")
 		stackpos -= 8
 	}
 	restore_arg_regs(len(ints), len(floats))
@@ -1844,12 +1834,13 @@ func emit_data_primtype(ty *Type, val *Node, depth int) {
 		emit(".short %d", eval_intexpr(val, nil))
 	case KIND_INT:
 		emit(".long %d", eval_intexpr(val, nil))
-	case KIND_LONG, KIND_LLONG, KIND_PTR:
+	case KIND_PTR:
 		if val.kind == OP_LABEL_ADDR {
 			emit(".quad %s", val.newlabel)
 			break
 		}
-		is_char_ptr := (val.operand.ty.kind == KIND_ARRAY && val.operand.ty.ptr.kind == KIND_CHAR)
+		//is_char_ptr := (val.operand.ty.kind == KIND_ARRAY && val.operand.ty.ptr.kind == KIND_CHAR)
+		is_char_ptr := false
 		if is_char_ptr {
 			emit_data_charptr(val.operand.sval, depth)
 		} else if val.kind == AST_GVAR {
@@ -1858,7 +1849,7 @@ func emit_data_primtype(ty *Type, val *Node, depth int) {
 			var base *Node
 			v := eval_intexpr(val, &base)
 			if base == nil {
-				emit(".quad %u", v)
+				emit(".quad %d", v)
 				break
 			}
 			ty := base.ty
@@ -1869,7 +1860,7 @@ func emit_data_primtype(ty *Type, val *Node, depth int) {
 				error("global variable expected, but got %#v", base)
 			}
 			assert(ty.ptr != nil)
-			emit(".quad %s+%u", base.glabel, v*ty.ptr.size)
+			emit(".quad %s+%d", base.glabel, v*ty.ptr.size)
 		}
 	default:
 		error("don't know how to handle\n  <%#v>\n  <%#v>", ty, val)
@@ -1898,18 +1889,12 @@ func do_emit_data(inits []*Node, size int, off int, depth int) {
 
 func emit_data(v *Node, off int, depth int) {
 	emit(".data %d", depth)
-	if !v.declvar.ty.isstatic {
-		emit_noindent(".global %s", v.declvar.glabel)
-	}
 	emit_noindent("%s:", v.declvar.glabel)
 	do_emit_data(v.declinit, v.declvar.ty.size, off, depth)
 }
 
 func emit_bss(v *Node) {
 	emit(".data")
-	if !v.declvar.ty.isstatic {
-		emit(".global %s", v.declvar.glabel)
-	}
 	emit(".lcomm %s, %d", v.declvar.glabel, v.declvar.ty.size)
 }
 
@@ -1946,13 +1931,13 @@ func push_func_params(params []*Node, off int) {
 	arg := 2
 	for _, v := range params {
 		if v.ty.kind == KIND_STRUCT {
-			emit("lea %d(#rbp), #rax", arg*8)
+			emit("lea rax, [rbp+%d]", arg*8)
 			size := push_struct(v.ty.size)
 			off -= size
 			arg += size / 8
 		} else if is_flotype(v.ty) {
 			if xreg >= 8 {
-				emit("mov %d(#rbp), #rax", arg*8)
+				emit("mov rax, [rbp+%d]", arg*8)
 				arg++
 				push("rax")
 			} else {
@@ -1985,14 +1970,9 @@ func push_func_params(params []*Node, off int) {
 }
 
 func emit_func_prologue(function *Node) {
-	emit(".text")
-	if !function.ty.isstatic {
-		emit_noindent(".global %s", function.fname)
-	}
 	emit_noindent("%s:", function.fname)
-	emit("nop")
-	push("rbp")
-	emit("mov #rsp, #rbp")
+	push("ebp")
+	emit("mov ebp, esp")
 	off := 0
 	if function.ty.hasva {
 		set_reg_nums(function.params)
@@ -2010,7 +1990,7 @@ func emit_func_prologue(function *Node) {
 		localarea += size
 	}
 	if localarea != 0 {
-		emit("sub $%d, #rsp", localarea)
+		emit("sub esp, %d", localarea)
 		stackpos += localarea
 	}
 }

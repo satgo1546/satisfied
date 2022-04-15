@@ -538,19 +538,18 @@ func main() {
 	} {
 		emit("%s equ %#x", name, 0x00401028+i*4)
 	}
-	/*
-		for _, top := range []*Node{
-			{kind: AST_FUNC, fname: "main", ty: &Type{kind: KIND_FUNC, params: []*Type{}, rettype: type_int},
-				params: []*Node{}, body: &Node{kind: AST_COMPOUND_STMT, stmts: []*Node{{kind: AST_RETURN, retval: &Node{kind: AST_CONV, ty: type_int, operand: &Node{kind: AST_LITERAL, ty: type_int, ival: 114}}}}}},
-		} {
-			do_node2s(os.Stdout, top)
-			fmt.Println()
-			emit_toplevel(top)
-		}
-	*/
-	emit_noindent("main:")
-	emit("push 114")
+	emit("call main")
+	emit("push eax")
 	emit("call [ExitProcess]")
+	for _, top := range []*Node{
+		{kind: AST_FUNC, fname: "main", ty: &Type{kind: KIND_FUNC, params: []*Type{}, rettype: type_int},
+			params: []*Node{}, body: &Node{kind: AST_COMPOUND_STMT, stmts: []*Node{{kind: AST_RETURN, retval: &Node{kind: AST_CONV, ty: type_int, operand: &Node{kind: AST_LITERAL, ty: type_int, ival: 42}}}}}},
+	} {
+		fmt.Print("; ")
+		do_node2s(os.Stdout, top)
+		fmt.Println()
+		emit_toplevel(top)
+	}
 	somethingfp.Close()
 	if bytes, err := exec.Command("nasm", "gen.asm", "-o", "something.bin").CombinedOutput(); err != nil {
 		fmt.Printf("exec.CombinedOutput: %v\n%s", err, bytes)
