@@ -545,8 +545,8 @@ func main() {
 		Name:   "main",
 		Args:   []any{},
 		Locals: []any{0, 0, 0},
-		Entry: &Block{
-			Code: []Instruction{
+		Blocks: [][]Instruction{
+			{
 				{OpSet, 0, []int{6}},
 				{OpSet, 1, []int{7}},
 				{OpMul, 2, []int{0, 1}},
@@ -554,7 +554,6 @@ func main() {
 			},
 		},
 	}
-	main.Entry.Next = []*Block{}
 	emit_subroutine(main)
 	somethingfp.Close()
 	if bytes, err := exec.Command("nasm", "gen.asm", "-o", "something.bin").CombinedOutput(); err != nil {

@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	OpReturn = iota
+	OpNil = iota
+	OpReturn
 	OpBranch
 	OpConditionalBranch
 
@@ -43,12 +44,7 @@ type Subroutine struct {
 	Name   string
 	Args   []any
 	Locals []any
-	Entry  *Block
-}
-
-type Block struct {
-	Code []Instruction
-	Next []*Block
+	Blocks [][]Instruction
 }
 
 type Instruction struct {
@@ -78,6 +74,7 @@ func Align(n int, m int) int {
 func emit_instruction(inst *Instruction) {
 	switch inst.Opcode {
 	case OpReturn:
+		emit("mov eax, [esp+%d*4]", inst.Args[0])
 		emit("leave")
 		emit("ret")
 	case OpBranch:
@@ -90,17 +87,10 @@ func emit_instruction(inst *Instruction) {
 	}
 }
 
-func emit_block(visited map[*Block]bool, block *Block) {
-	if visited[block] {
-		return
-	}
-	visited[block] = true
+func emit_block(block []Instruction) {
 	emit_noindent(".blk%p:", block)
-	for _, i := range block.Code {
+	for _, i := range block {
 		emit_instruction(&i)
-	}
-	for _, b := range block.Next {
-		emit_block(visited, b)
 	}
 }
 
@@ -109,5 +99,7 @@ func emit_subroutine(subroutine *Subroutine) {
 	emit("push ebp")
 	emit("mov ebp, esp")
 	emit("sub esp, %d*4", len(subroutine.Locals))
-	emit_block(make(map[*Block]bool), subroutine.Entry)
+	for _, b := range subroutine.Blocks {
+		emit_block(b)
+	}
 }
