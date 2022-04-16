@@ -8,7 +8,7 @@ import (
 const (
 	OpNoOp = iota
 	OpReturn
-	OpUnconditionalBranch
+	OpBranch
 	OpBranchIfNonzero
 	OpBranchIfPositive
 	OpBranchIfNegative
@@ -18,8 +18,6 @@ const (
 	OpSignExtend
 
 	OpNeg
-	OpInc
-	OpDec
 	OpAdd
 	OpSub
 	OpCompare
@@ -72,6 +70,8 @@ func emit_subroutine(subroutine *Subroutine) {
 	emit("push ebp")
 	emit("mov ebp, esp")
 	emit("sub esp, %d*4", len(subroutine.Code))
+	emit_noindent(".BB0:")
+	b := 0
 	for i, inst := range subroutine.Code {
 		emit_noindent(".L%d: ; %+v", i, inst)
 		switch inst.Opcode {
@@ -79,6 +79,14 @@ func emit_subroutine(subroutine *Subroutine) {
 			emit("mov eax, [esp+%d*4]", inst.Args[0])
 			emit("leave")
 			emit("ret")
+			b++
+			emit_noindent(".BB%d:", b)
+		case OpBranchIfNonzero:
+			emit("cmp dword [esp+%d*4], 0", inst.Args[0])
+			emit("jne .BB%d", inst.Args[1])
+			emit("jmp .BB%d", inst.Args[2])
+			b++
+			emit_noindent(".BB%d:", b)
 		case OpConst:
 			emit("mov dword [esp+%d*4], %d", i, inst.Args[0])
 		case OpMul:
