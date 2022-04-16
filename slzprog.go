@@ -545,15 +545,17 @@ func main() {
 		Name: "main",
 		Args: []any{},
 		Code: []Instruction{
-			{OpConst, []int{999}},
+			{OpConst, []int{2}},
 			{OpConst, []int{7}},
-			{OpConst, []int{6}},
-			{OpBranchIfNonzero, []int{0, 1, 2}},
+			{OpConst, []int{8}},
+			{OpBranchIfNonzero, []int{0, 1, 0, 2, 0}},
 
-			{OpMul, []int{2, 1}},
-			{OpReturn, []int{4}},
+			{OpSub, []int{2, 0}},
+			{OpBranch, []int{2, 1}},
 
-			{OpReturn, []int{0}},
+			{OpΦ, []int{2, 4}},
+			{OpMul, []int{6, 1}},
+			{OpReturn, []int{7}},
 		},
 	}
 	emit_subroutine(main)
