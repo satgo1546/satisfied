@@ -542,16 +542,13 @@ func main() {
 	emit("push eax")
 	emit("call [ExitProcess]")
 	main := &Subroutine{
-		Name:   "main",
-		Args:   []any{},
-		Locals: []any{0, 0, 0},
-		Blocks: [][]Instruction{
-			{
-				{OpSet, 0, []int{6}},
-				{OpSet, 1, []int{7}},
-				{OpMul, 2, []int{0, 1}},
-				{OpReturn, -1, []int{2}},
-			},
+		Name: "main",
+		Args: []any{},
+		Code: []Instruction{
+			{OpConst, []int{6}},
+			{OpConst, []int{7}},
+			{OpMul, []int{0, 1}},
+			{OpReturn, []int{2}},
 		},
 	}
 	emit_subroutine(main)

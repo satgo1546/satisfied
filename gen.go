@@ -6,12 +6,14 @@ import (
 )
 
 const (
-	OpNil = iota
+	OpNoOp = iota
 	OpReturn
-	OpBranch
-	OpConditionalBranch
+	OpUnconditionalBranch
+	OpBranchIfNonzero
+	OpBranchIfPositive
+	OpBranchIfNegative
 
-	OpSet
+	OpConst
 	OpZeroExtend
 	OpSignExtend
 
@@ -20,6 +22,7 @@ const (
 	OpDec
 	OpAdd
 	OpSub
+	OpCompare
 	OpMul
 	OpUDiv
 	OpIDiv
@@ -29,28 +32,21 @@ const (
 	OpXor
 	OpNot
 	OpShiftLeft
+	OpRotateLeft
 	OpLogicalShiftRight
 	OpArithmeticShiftRight
-
-	OpEq
-	OpGT
-	OpGE
-	OpLT
-	OpLE
-	OpNE
+	OpRotateRight
 )
 
 type Subroutine struct {
-	Name   string
-	Args   []any
-	Locals []any
-	Blocks [][]Instruction
+	Name string
+	Args []any
+	Code []Instruction
 }
 
 type Instruction struct {
-	Opcode      int
-	Destination int
-	Args        []int
+	Opcode int
+	Args   []int
 }
 
 var outputfp io.Writer
@@ -71,35 +67,24 @@ func Align(n int, m int) int {
 	return n - rem + m
 }
 
-func emit_instruction(inst *Instruction) {
-	switch inst.Opcode {
-	case OpReturn:
-		emit("mov eax, [esp+%d*4]", inst.Args[0])
-		emit("leave")
-		emit("ret")
-	case OpBranch:
-	case OpSet:
-		emit("mov dword [esp+%d*4], %d", inst.Destination, inst.Args[0])
-	case OpMul:
-		emit("mov eax, [esp+%d*4]", inst.Args[0])
-		emit("imul eax, [esp+%d*4]", inst.Args[1])
-		emit("mov [esp+%d*4], eax", inst.Destination)
-	}
-}
-
-func emit_block(block []Instruction) {
-	emit_noindent(".blk%p:", block)
-	for _, i := range block {
-		emit_instruction(&i)
-	}
-}
-
 func emit_subroutine(subroutine *Subroutine) {
 	emit_noindent("%s:", subroutine.Name)
 	emit("push ebp")
 	emit("mov ebp, esp")
-	emit("sub esp, %d*4", len(subroutine.Locals))
-	for _, b := range subroutine.Blocks {
-		emit_block(b)
+	emit("sub esp, %d*4", len(subroutine.Code))
+	for i, inst := range subroutine.Code {
+		emit_noindent(".L%d: ; %+v", i, inst)
+		switch inst.Opcode {
+		case OpReturn:
+			emit("mov eax, [esp+%d*4]", inst.Args[0])
+			emit("leave")
+			emit("ret")
+		case OpConst:
+			emit("mov dword [esp+%d*4], %d", i, inst.Args[0])
+		case OpMul:
+			emit("mov eax, [esp+%d*4]", inst.Args[0])
+			emit("imul eax, [esp+%d*4]", inst.Args[1])
+			emit("mov [esp+%d*4], eax", i)
+		}
 	}
 }
