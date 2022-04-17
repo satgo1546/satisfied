@@ -10,8 +10,6 @@ const (
 	OpReturn
 	OpBranch
 	OpBranchIfNonzero
-	OpBranchIfPositive
-	OpBranchIfNegative
 	OpΦ
 
 	OpConst
@@ -25,6 +23,8 @@ const (
 	OpMul
 	OpUDiv
 	OpIDiv
+	OpUMod
+	OpIMod
 
 	OpAnd
 	OpOr
@@ -85,6 +85,17 @@ func emit_subroutine(subroutine *Subroutine) {
 		}
 		emit_noindent(".L%d: ; %+v", i, inst)
 		switch inst.Opcode {
+		case OpΦ:
+			if len(inst.Args) != 0 {
+				emit("mov eax, [esp+%d*4]", inst.Args[0])
+				for _, edge := range inst.Args[1:] {
+					emit("dec dl")
+					emit("cmovz eax, [esp+%d*4]", edge)
+				}
+				emit("add dl, %d", len(inst.Args)-1)
+				emit("mov [esp-%d*4], eax", φ+1)
+			}
+			φ++
 		case OpReturn:
 			emit("mov eax, [esp+%d*4]", inst.Args[0])
 			emit("leave")
@@ -104,26 +115,23 @@ func emit_subroutine(subroutine *Subroutine) {
 			emit("jmp .BB%d", inst.Args[3])
 			b++
 			emit_noindent(".BB%d:", b)
-		case OpΦ:
-			if len(inst.Args) != 0 {
-				emit("mov eax, [esp+%d*4]", inst.Args[0])
-				for _, edge := range inst.Args[1:] {
-					emit("dec dl")
-					emit("cmovz eax, [esp+%d*4]", edge)
-				}
-				emit("add dl, %d", len(inst.Args)-1)
-				emit("mov [esp-%d*4], eax", φ+1)
-			}
-			φ++
 		case OpConst:
 			emit("mov dword [esp+%d*4], %d", i, inst.Args[0])
-		case OpSub:
+		case OpNot, OpNeg:
+			emit("%s [esp+%d*4]", map[int]string{
+				OpNot: "not",
+				OpNeg: "neg",
+			}[inst.Opcode], inst.Args[0])
+		case OpAdd, OpSub, OpMul, OpAnd, OpOr, OpXor:
 			emit("mov eax, [esp+%d*4]", inst.Args[0])
-			emit("sub eax, [esp+%d*4]", inst.Args[1])
-			emit("mov [esp+%d*4], eax", i)
-		case OpMul:
-			emit("mov eax, [esp+%d*4]", inst.Args[0])
-			emit("imul eax, [esp+%d*4]", inst.Args[1])
+			emit("%s eax, [esp+%d*4]", map[int]string{
+				OpAdd: "add",
+				OpSub: "sub",
+				OpMul: "imul",
+				OpAnd: "and",
+				OpOr:  "or",
+				OpXor: "xor",
+			}[inst.Opcode], inst.Args[1])
 			emit("mov [esp+%d*4], eax", i)
 		}
 	}
