@@ -73,7 +73,16 @@ func emit_subroutine(subroutine *Subroutine) {
 	emit("sub esp, %d*4", len(subroutine.Code))
 	emit_noindent(".BB0:")
 	b := 0
+	φ := 0
 	for i, inst := range subroutine.Code {
+		if inst.Opcode != OpΦ && φ != 0 {
+			emit("; commit φ's")
+			for j := 0; j < φ; j++ {
+				emit("mov eax, [esp-%d*4]", j+1)
+				emit("mov [esp+%d*4], eax", i-φ+j)
+			}
+			φ = 0
+		}
 		emit_noindent(".L%d: ; %+v", i, inst)
 		switch inst.Opcode {
 		case OpReturn:
@@ -102,8 +111,10 @@ func emit_subroutine(subroutine *Subroutine) {
 					emit("dec dl")
 					emit("cmovz eax, [esp+%d*4]", edge)
 				}
-				emit("mov [esp+%d*4], eax", i)
+				emit("add dl, %d", len(inst.Args)-1)
+				emit("mov [esp-%d*4], eax", φ+1)
 			}
+			φ++
 		case OpConst:
 			emit("mov dword [esp+%d*4], %d", i, inst.Args[0])
 		case OpSub:
