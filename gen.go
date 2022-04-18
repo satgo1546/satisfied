@@ -99,14 +99,36 @@ func NumberInstructions(inst *Instruction, start int) int {
 }
 
 func emit_instructions(inst *Instruction, pred0 *Instruction) {
+	// SSA φ-functions must be executed simultaneously if interpreted.
+	// Reference: Interpreting programs in static single assignment form by Jeffery von Ronne, Ning Wang, and Michael Franz.
+	φ := 0
+	for i := inst; i != nil && i.Opcode == OpΦ; i = i.Next {
+		φ++
+	}
+	if φ != 0 {
+		i0 := inst
+		emit_noindent(".L%d: ; %d φ instruction(s)", inst.Serial, φ)
+		emit("sub esp, %d*4", φ)
+		for j := 0; j < φ; j++ {
+			emit("mov eax, [esp+(%d+%d)*4]", inst.Arg0.Serial, φ)
+			emit("test dword [esp+(%d+%d)*4], 1", pred0.Serial, φ)
+			emit("cmovz eax, [esp+(%d+%d)*4]", inst.Arg1.Serial, φ)
+			emit("mov [esp+%d*4], eax", j)
+			inst = inst.Next
+		}
+		inst = i0
+		for j := 0; j < φ; j++ {
+			emit("mov eax, [esp+%d*4]", j)
+			emit("mov [esp+(%d+%d)*4], eax", inst.Serial, φ)
+			inst = inst.Next
+		}
+		emit("add esp, %d*4", φ)
+	}
 	for ; inst != nil; inst = inst.Next {
 		emit_noindent(".L%d: ; %p = %+v", inst.Serial, inst, inst)
 		switch inst.Opcode {
 		case OpΦ:
-			emit("mov eax, [esp+%d*4]", inst.Arg0.Serial)
-			emit("test dword [esp+%d*4], 1", pred0.Serial)
-			emit("cmovz eax, [esp+%d*4]", inst.Arg1.Serial)
-			emit("mov [esp+%d*4], eax", inst.Serial)
+			panic("OpΦ in the middle of a block")
 		case OpReturn:
 			emit("mov eax, [esp+%d*4]", inst.Arg0.Serial)
 			emit("leave")
