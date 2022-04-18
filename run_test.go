@@ -16,7 +16,7 @@ func TestMe(t *testing.T) {
 		t.Errorf("bad executable: %v", err)
 	}
 	if code != 42 {
-		t.Errorf("not 42")
+		t.Errorf("not 42 but %d", code)
 	}
 	fmt.Printf("%s", bytes)
 }

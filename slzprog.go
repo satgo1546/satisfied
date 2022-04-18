@@ -541,13 +541,23 @@ func MakeExe() {
 	emit("call main")
 	emit("push eax")
 	emit("call [ExitProcess]")
-	i1 := &Instruction{Opcode: OpConst, Const: 6}
-	i2 := &Instruction{Opcode: OpConst, Const: 7}
-	i3 := &Instruction{Opcode: OpMul, Arg0: i1, Arg1: i2}
-	i4 := &Instruction{Opcode: OpReturn, Arg0: i3}
+	i1 := &Instruction{Opcode: OpConst, Const: 7}
+	i2 := &Instruction{Opcode: OpConst, Const: 8}
+	i3 := &Instruction{Opcode: OpConst, Const: 2}
+	i4 := &Instruction{Opcode: OpIfNonzero, Arg3: i3}
+	i5 := &Instruction{Opcode: OpSub, Arg0: i2, Arg1: i3}
+	i6 := &Instruction{Opcode: OpAdd, Arg0: i2, Arg1: i3}
+	i7 := &Instruction{Opcode: OpΦ, Arg0: i5, Arg1: i6}
+	i8 := &Instruction{Opcode: OpMul, Arg0: i7, Arg1: i1}
+	i9 := &Instruction{Opcode: OpReturn, Arg0: i8}
 	i1.Next = i2
 	i2.Next = i3
 	i3.Next = i4
+	i4.Arg0 = i5
+	i4.Arg1 = i6
+	i4.Arg2 = i7
+	i4.Next = i8
+	i8.Next = i9
 	main := &Subroutine{
 		Name: "main",
 		Args: []any{},

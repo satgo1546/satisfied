@@ -55,8 +55,9 @@ type Instruction struct {
 	Opcode int
 	Arg0   *Instruction
 	Arg1   *Instruction
+	Arg2   *Instruction
+	Arg3   *Instruction
 	Const  int
-	Ptr    *Instruction
 }
 
 var outputfp io.Writer
@@ -87,25 +88,33 @@ func (inst *Instruction) ID() int {
 	return inst.Info
 }
 
-func emit_subroutine(subroutine *Subroutine) {
-	emit_noindent("%s:", subroutine.Name)
-	for inst := subroutine.Code; inst != nil; inst = inst.Next {
+func emit_instructions(inst *Instruction, pred0 *Instruction) {
+	for ; inst != nil; inst = inst.Next {
 		emit_noindent(".L%d: ; %p = %+v", inst.ID(), inst, inst)
 		switch inst.Opcode {
 		case OpΦ:
-			// TODO
 			emit("mov eax, [esp-%d*4-4]", inst.Arg0.ID())
+			emit("test dword [esp-%d*4-4], 1", pred0.ID())
 			emit("cmovz eax, [esp-%d*4-4]", inst.Arg1.ID())
-			emit("mov [esp-%d*4], eax", inst.Info)
+			emit("mov [esp-%d*4-4], eax", inst.Info)
 		case OpReturn:
 			emit("mov eax, [esp-%d*4-4]", inst.Arg0.Info)
 			emit("ret")
 		case OpIfNonzero:
+			emit("cmp dword [esp-%d*4-4], 0", inst.Arg3.Info)
+			emit("je .L%d_else", inst.Info)
+			emit_instructions(inst.Arg0, nil)
+			emit("mov dword [esp-%d*4-4], 1", inst.Info)
+			emit("jmp .L%d_end", inst.Info)
+			emit_noindent(".L%d_else:", inst.Info)
+			emit_instructions(inst.Arg1, nil)
+			emit("mov dword [esp-%d*4-4], 0", inst.Info)
+			emit_noindent(".L%d_end:", inst.Info)
+			emit_instructions(inst.Arg2, inst)
+		case OpWhile:
 			// TODO
-			emit("cmp dword [esp-%d*4-4], 0", inst.Arg0.ID())
-			emit("jne .BB%d", inst.Arg1.ID())
 		case OpConst:
-			emit("mov dword [esp-%d*4-4], %d", inst.ID(), inst.Const)
+			emit("mov dword [esp-%d*4-4], %d", inst.Info, inst.Const)
 		case OpNot, OpNeg:
 			emit("mov eax, [esp-%d*4-4]", inst.Arg0.Info)
 			emit("%s eax", map[int]string{
@@ -126,4 +135,9 @@ func emit_subroutine(subroutine *Subroutine) {
 			emit("mov [esp-%d*4-4], eax", inst.Info)
 		}
 	}
+}
+
+func emit_subroutine(subroutine *Subroutine) {
+	emit_noindent("%s:", subroutine.Name)
+	emit_instructions(subroutine.Code, nil)
 }
