@@ -544,7 +544,7 @@ func MakeExe() {
 	i1 := &Instruction{Opcode: OpConst, Const: 7}
 	i2 := &Instruction{Opcode: OpConst, Const: 8}
 	i3 := &Instruction{Opcode: OpConst, Const: 2}
-	i4 := &Instruction{Opcode: OpIfNonzero, Arg3: i3}
+	i4 := &Instruction{Opcode: OpIfPositive, Arg3: i3}
 	i5 := &Instruction{Opcode: OpSub, Arg0: i2, Arg1: i3}
 	i6 := &Instruction{Opcode: OpAdd, Arg0: i2, Arg1: i3}
 	i7 := &Instruction{Opcode: OpΦ, Arg0: i5, Arg1: i6}

@@ -100,9 +100,13 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 		case OpReturn:
 			emit("mov eax, [esp-%d*4-4]", inst.Arg0.Info)
 			emit("ret")
-		case OpIfNonzero:
+		case OpIfNonzero, OpIfPositive, OpIfNegative:
 			emit("cmp dword [esp-%d*4-4], 0", inst.Arg3.Info)
-			emit("je .L%d_else", inst.Info)
+			emit("%s .L%d_else", map[int]string{
+				OpIfNonzero:  "je",
+				OpIfPositive: "jle",
+				OpIfNegative: "jge",
+			}[inst.Opcode], inst.Info)
 			emit_instructions(inst.Arg0, nil)
 			emit("mov dword [esp-%d*4-4], 1", inst.Info)
 			emit("jmp .L%d_end", inst.Info)
