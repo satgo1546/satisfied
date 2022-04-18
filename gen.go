@@ -13,7 +13,10 @@ const (
 
 	OpΦ
 	OpIfNonzero
+	OpIfZero
+	OpIfNonpositive
 	OpIfPositive
+	OpIfNonnegative
 	OpIfNegative
 	OpWhile
 
@@ -84,7 +87,7 @@ func NumberInstructions(inst *Instruction, start int) int {
 		inst.Serial = start
 		start++
 		switch inst.Opcode {
-		case OpIfNonzero, OpIfPositive, OpIfNegative:
+		case OpIfNonzero, OpIfZero, OpIfNonpositive, OpIfPositive, OpIfNonnegative, OpIfNegative:
 			start = NumberInstructions(inst.Arg0, start)
 			start = NumberInstructions(inst.Arg1, start)
 			start = NumberInstructions(inst.Arg2, start)
@@ -108,12 +111,15 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 			emit("mov eax, [esp+%d*4]", inst.Arg0.Serial)
 			emit("leave")
 			emit("ret")
-		case OpIfNonzero, OpIfPositive, OpIfNegative:
+		case OpIfNonzero, OpIfZero, OpIfNonpositive, OpIfPositive, OpIfNonnegative, OpIfNegative:
 			emit("cmp dword [esp+%d*4], 0", inst.Arg3.Serial)
 			emit("%s .L%d", map[int]string{
-				OpIfNonzero:  "je",
-				OpIfPositive: "jle",
-				OpIfNegative: "jge",
+				OpIfNonzero:     "je",
+				OpIfZero:        "jne",
+				OpIfNonpositive: "jg",
+				OpIfPositive:    "jle",
+				OpIfNonnegative: "jl",
+				OpIfNegative:    "jge",
 			}[inst.Opcode], inst.Arg1.Serial)
 			emit_instructions(inst.Arg0, nil)
 			emit("mov dword [esp+%d*4], 1", inst.Serial)
