@@ -517,8 +517,8 @@ func PEWrite(f *os.File, windows_program []byte) {
 	fmt.Fprintf(f, "Data after this point is useless.")
 }
 
-func main() {
-	somethingfp, _ := os.Create("gen.asm")
+func MakeExe() {
+	somethingfp, _ := os.OpenFile("gen.asm", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0777)
 	outputfp = io.MultiWriter(os.Stdout, somethingfp)
 	emit_noindent("bits 32")
 	emit_noindent("org %#x", 0x00403000)
@@ -572,4 +572,7 @@ func main() {
 		fmt.Printf("Close: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func main() {
 }
