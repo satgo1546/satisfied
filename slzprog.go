@@ -541,22 +541,17 @@ func main() {
 	emit("call main")
 	emit("push eax")
 	emit("call [ExitProcess]")
+	i1 := &Instruction{Opcode: OpConst, Const: 6}
+	i2 := &Instruction{Opcode: OpConst, Const: 7}
+	i3 := &Instruction{Opcode: OpMul, Arg0: i1, Arg1: i2}
+	i4 := &Instruction{Opcode: OpReturn, Arg0: i3}
+	i1.Next = i2
+	i2.Next = i3
+	i3.Next = i4
 	main := &Subroutine{
 		Name: "main",
 		Args: []any{},
-		Code: []Instruction{
-			{OpConst, []int{2}},
-			{OpConst, []int{7}},
-			{OpConst, []int{8}},
-			{OpBranchIfNonzero, []int{0, 1, 0, 2, 0}},
-
-			{OpSub, []int{2, 0}},
-			{OpBranch, []int{2, 1}},
-
-			{OpΦ, []int{2, 4}},
-			{OpMul, []int{6, 1}},
-			{OpReturn, []int{7}},
-		},
+		Code: i1,
 	}
 	emit_subroutine(main)
 	somethingfp.Close()

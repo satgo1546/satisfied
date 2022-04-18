@@ -7,10 +7,15 @@ import (
 
 const (
 	OpNoOp = iota
+
+	// OpReturn doesn't seem to fit here...
 	OpReturn
-	OpBranch
-	OpBranchIfNonzero
+
 	OpΦ
+	OpIfNonzero
+	OpIfPositive
+	OpIfNegative
+	OpWhile
 
 	OpConst
 	OpZeroExtend
@@ -19,6 +24,7 @@ const (
 	OpNeg
 	OpAdd
 	OpSub
+	// The spaceship operator <=> in Ruby and C++20.
 	OpCompare
 	OpMul
 	OpUDiv
@@ -40,12 +46,17 @@ const (
 type Subroutine struct {
 	Name string
 	Args []any
-	Code []Instruction
+	Code *Instruction
 }
 
 type Instruction struct {
+	Next   *Instruction
+	Info   int
 	Opcode int
-	Args   []int
+	Arg0   *Instruction
+	Arg1   *Instruction
+	Const  int
+	Ptr    *Instruction
 }
 
 var outputfp io.Writer
@@ -66,73 +77,53 @@ func Align(n int, m int) int {
 	return n - rem + m
 }
 
+var lastID int
+
+func (inst *Instruction) ID() int {
+	if inst.Info == 0 {
+		lastID++
+		inst.Info = lastID
+	}
+	return inst.Info
+}
+
 func emit_subroutine(subroutine *Subroutine) {
 	emit_noindent("%s:", subroutine.Name)
-	emit("push ebp")
-	emit("mov ebp, esp")
-	emit("sub esp, %d*4", len(subroutine.Code))
-	emit_noindent(".BB0:")
-	b := 0
-	φ := 0
-	for i, inst := range subroutine.Code {
-		if inst.Opcode != OpΦ && φ != 0 {
-			emit("; commit φ's")
-			for j := 0; j < φ; j++ {
-				emit("mov eax, [esp-%d*4]", j+1)
-				emit("mov [esp+%d*4], eax", i-φ+j)
-			}
-			φ = 0
-		}
-		emit_noindent(".L%d: ; %+v", i, inst)
+	for inst := subroutine.Code; inst != nil; inst = inst.Next {
+		emit_noindent(".L%d: ; %p = %+v", inst.ID(), inst, inst)
 		switch inst.Opcode {
 		case OpΦ:
-			if len(inst.Args) != 0 {
-				emit("mov eax, [esp+%d*4]", inst.Args[0])
-				for _, edge := range inst.Args[1:] {
-					emit("dec dl")
-					emit("cmovz eax, [esp+%d*4]", edge)
-				}
-				emit("add dl, %d", len(inst.Args)-1)
-				emit("mov [esp-%d*4], eax", φ+1)
-			}
-			φ++
+			// TODO
+			emit("mov eax, [esp-%d*4-4]", inst.Arg0.ID())
+			emit("cmovz eax, [esp-%d*4-4]", inst.Arg1.ID())
+			emit("mov [esp-%d*4], eax", inst.Info)
 		case OpReturn:
-			emit("mov eax, [esp+%d*4]", inst.Args[0])
-			emit("leave")
+			emit("mov eax, [esp-%d*4-4]", inst.Arg0.Info)
 			emit("ret")
-			b++
-			emit_noindent(".BB%d:", b)
-		case OpBranch:
-			emit("mov dl, %d", inst.Args[1])
-			emit("jmp .BB%d", inst.Args[0])
-			b++
-			emit_noindent(".BB%d:", b)
-		case OpBranchIfNonzero:
-			emit("cmp dword [esp+%d*4], 0", inst.Args[0])
-			emit("mov dl, %d", inst.Args[2])
-			emit("jne .BB%d", inst.Args[1])
-			emit("mov dl, %d", inst.Args[4])
-			emit("jmp .BB%d", inst.Args[3])
-			b++
-			emit_noindent(".BB%d:", b)
+		case OpIfNonzero:
+			// TODO
+			emit("cmp dword [esp-%d*4-4], 0", inst.Arg0.ID())
+			emit("jne .BB%d", inst.Arg1.ID())
 		case OpConst:
-			emit("mov dword [esp+%d*4], %d", i, inst.Args[0])
+			emit("mov dword [esp-%d*4-4], %d", inst.ID(), inst.Const)
 		case OpNot, OpNeg:
-			emit("%s [esp+%d*4]", map[int]string{
+			emit("mov eax, [esp-%d*4-4]", inst.Arg0.Info)
+			emit("%s eax", map[int]string{
 				OpNot: "not",
 				OpNeg: "neg",
-			}[inst.Opcode], inst.Args[0])
+			}[inst.Opcode])
+			emit("mov [esp-%d*4-4], eax", inst.Info)
 		case OpAdd, OpSub, OpMul, OpAnd, OpOr, OpXor:
-			emit("mov eax, [esp+%d*4]", inst.Args[0])
-			emit("%s eax, [esp+%d*4]", map[int]string{
+			emit("mov eax, [esp-%d*4-4]", inst.Arg0.Info)
+			emit("%s eax, [esp-%d*4-4]", map[int]string{
 				OpAdd: "add",
 				OpSub: "sub",
 				OpMul: "imul",
 				OpAnd: "and",
 				OpOr:  "or",
 				OpXor: "xor",
-			}[inst.Opcode], inst.Args[1])
-			emit("mov [esp+%d*4], eax", i)
+			}[inst.Opcode], inst.Arg1.Info)
+			emit("mov [esp-%d*4-4], eax", inst.Info)
 		}
 	}
 }
