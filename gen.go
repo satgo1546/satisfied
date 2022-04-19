@@ -67,7 +67,8 @@ type Instruction struct {
 var outputfp io.Writer
 
 func emit(format string, a ...any) {
-	emit_noindent("\t"+format, a...)
+	outputfp.Write([]byte{'\t'})
+	emit_noindent(format, a...)
 }
 func emit_noindent(format string, a ...any) {
 	fmt.Fprintf(outputfp, format, a...)
@@ -134,23 +135,35 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 			emit("leave")
 			emit("ret")
 		case OpIfNonzero, OpIfZero, OpIfNonpositive, OpIfPositive, OpIfNonnegative, OpIfNegative:
+			// L%d_then, L%d_else and L%d_end labels are necessary since empty bodies have no instruction numbers themselves.
 			emit("cmp dword [esp+%d*4], 0", inst.Arg3.Serial)
-			emit("%s .L%d", map[int]string{
+			emit("%s .L%d_else", map[int]string{
 				OpIfNonzero:     "je",
 				OpIfZero:        "jne",
 				OpIfNonpositive: "jg",
 				OpIfPositive:    "jle",
 				OpIfNonnegative: "jl",
 				OpIfNegative:    "jge",
-			}[inst.Opcode], inst.Arg1.Serial)
-			emit_instructions(inst.Arg0, nil)
+			}[inst.Opcode], inst.Serial)
+
+			emit_noindent(".L%d_then:", inst.Serial)
 			emit("mov dword [esp+%d*4], 1", inst.Serial)
-			emit("jmp .L%d", inst.Arg2.Serial)
-			emit_instructions(inst.Arg1, nil)
+			emit_instructions(inst.Arg0, nil)
+			emit("jmp .L%d_end", inst.Serial)
+
+			emit_noindent(".L%d_else:", inst.Serial)
 			emit("mov dword [esp+%d*4], 0", inst.Serial)
+			emit_instructions(inst.Arg1, nil)
+
+			emit_noindent(".L%d_end:", inst.Serial)
 			emit_instructions(inst.Arg2, inst)
 		case OpWhile:
-			// TODO
+			emit("mov dword [esp+%d*4], 0", inst.Serial)
+			emit_noindent(".L%d_loop:", inst.Serial)
+			emit_instructions(inst.Arg0, inst)
+			emit("mov dword [esp+%d*4], 1", inst.Serial)
+			emit("test dword [esp+%d*4], 1", inst.Arg1.Serial)
+			emit("jnz .L%d_loop", inst.Serial)
 		case OpConst:
 			emit("mov dword [esp+%d*4], %d", inst.Serial, inst.Const)
 		case OpNot, OpNeg:
