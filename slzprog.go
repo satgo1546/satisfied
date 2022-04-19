@@ -553,13 +553,11 @@ func MakeExe() {
 	i10 := &Instruction{Opcode: OpOr, Arg0: i6, Arg1: i1}
 	i11 := &Instruction{Opcode: OpAdd, Arg0: i5, Arg1: i6}
 	i12 := &Instruction{Opcode: OpAdd, Arg0: i7, Arg1: i2}
-	i13 := &Instruction{Opcode: OpReturn, Arg0: i6}
 	i1.Next = i2
 	i2.Next = i3
 	i3.Next = i4
 	i4.Arg0 = i5
 	i4.Arg1 = i9
-	i4.Next = i13
 	i5.Next = i6
 	i5.Arg0 = i10
 	i6.Next = i7
@@ -575,6 +573,7 @@ func MakeExe() {
 		Name: "main",
 		Args: []any{},
 		Code: i1,
+		Ret:  i6,
 	}
 	emit_subroutine(main)
 	somethingfp.Close()

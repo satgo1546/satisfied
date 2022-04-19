@@ -8,9 +8,6 @@ import (
 const (
 	OpNoOp = iota
 
-	// OpReturn doesn't seem to fit here...
-	OpReturn
-
 	OpΦ
 	OpIfNonzero
 	OpIfZero
@@ -50,6 +47,7 @@ type Subroutine struct {
 	Name string
 	Args []any
 	Code *Instruction
+	Ret  *Instruction
 }
 
 type Instruction struct {
@@ -130,10 +128,6 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 		switch inst.Opcode {
 		case OpΦ:
 			panic("OpΦ in the middle of a block")
-		case OpReturn:
-			emit("mov eax, [esp+%d*4]", inst.Arg0.Serial)
-			emit("leave")
-			emit("ret")
 		case OpIfNonzero, OpIfZero, OpIfNonpositive, OpIfPositive, OpIfNonnegative, OpIfNegative:
 			// L%d_then, L%d_else and L%d_end labels are necessary since empty bodies have no instruction numbers themselves.
 			emit("cmp dword [esp+%d*4], 0", inst.Arg3.Serial)
@@ -196,4 +190,7 @@ func emit_subroutine(subroutine *Subroutine) {
 	emit("mov ebp, esp")
 	emit("sub esp, %d*4", NumberInstructions(subroutine.Code, 0))
 	emit_instructions(subroutine.Code, nil)
+	emit("mov eax, [esp+%d*4]", subroutine.Ret.Serial)
+	emit("leave")
+	emit("ret")
 }
