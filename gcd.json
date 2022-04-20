@@ -1,0 +1,58 @@
+{"type":"block"
+,"defs":
+[       {"type":"var","refn":1,"name": "a"}
+,       {"type":"var","refn":2,"name": "b"}
+]
+,"body":
+[
+{"type":"while"
+,"cond":
+{"type":"call"
+,"head":"builtin-neq"
+,"args":
+[       {"type":"ref","refn":2}
+,       {"type": "literal", "ival": 0}
+]
+}
+,"then":
+{"type":"if"
+,"cond":
+{"type":"call"
+,"head":"builtin-gt"
+,"args":
+[       {"type":"ref","refn":1}
+,       {"type":"ref","refn":2}
+]
+}
+,"then":
+{"type":"assign"
+,"lval":{"type":"ref","refn":1}
+,"rval":
+{"type":"call"
+,"head":"builtin-sub"
+,"args":
+[       {"type":"ref","refn":1}
+,       {"type":"ref","refn":2}
+]
+}
+}
+,"else":
+{"type":"assign"
+,"lval":{"type":"ref","refn":2}
+,"rval":
+{"type":"call"
+,"head":"builtin-sub"
+,"args":
+[       {"type":"ref","refn":2}
+,       {"type":"ref","refn":1}
+]
+}
+}
+}
+}
+,
+{"type":"return"
+,"rval":{"type":"ref","refn":1}
+}
+]
+}
