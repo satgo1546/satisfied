@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,12 +25,16 @@ func TestMe(t *testing.T) {
 }
 
 func TestJSON(t *testing.T) {
-	bytes, err := os.ReadFile("gcd.json")
+	contents, err := os.ReadFile("gcd.json")
 	if err != nil {
 		t.Error(err)
 	}
 	var obj *Node
-	json.Unmarshal(bytes, &obj)
-	t.Logf("%+v\n", obj)
-	WriteNode(os.Stdout, obj)
+	json.Unmarshal(contents, &obj)
+	var b bytes.Buffer
+	WriteNode(&b, obj)
+	if !bytes.Equal(b.Bytes(), contents) {
+		fmt.Printf("%s\n", b.Bytes())
+		t.Errorf("differently formatted input and output")
+	}
 }

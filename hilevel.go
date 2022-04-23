@@ -7,20 +7,21 @@ import (
 )
 
 type Node struct {
-	Type        string      `json:"type"`
-	ID          int64       `json:"refn"`
-	Name        string      `json:"name" stype:""`
-	Description string      `json:"desc" stype:"var"`
-	Definitions []*Node     `json:"defs" stype:"block"`
-	Body        []*Node     `json:"body" stype:"block"`
-	Condition   *Node       `json:"cond" stype:"if while"`
-	Then        *Node       `json:"then" stype:"if while"`
-	Else        *Node       `json:"else" stype:"if while"`
-	Head        *Node       `json:"head" stype:"call"`
-	Arguments   []*Node     `json:"args" stype:"call"`
-	LValue      *Node       `json:"lval" stype:"assign"`
-	RValue      *Node       `json:"rval" stype:"assign return"`
-	Immediate   interface{} `json:"ival" stype:"literal"`
+	Type           string      `json:"type"`
+	ReferenceLevel int         `json:"refl" nodeTypes:"ref"`
+	ID             int64       `json:"refn" nodeTypes:"var ref"`
+	Name           string      `json:"name" nodeTypes:"var builtin"`
+	Description    string      `json:"desc" nodeTypes:"var"`
+	Definitions    []*Node     `json:"defs" nodeTypes:"block"`
+	Body           []*Node     `json:"body" nodeTypes:"block"`
+	Condition      *Node       `json:"cond" nodeTypes:"if while"`
+	Then           *Node       `json:"then" nodeTypes:"if while"`
+	Else           *Node       `json:"else" nodeTypes:"if while"`
+	Head           *Node       `json:"head" nodeTypes:"call"`
+	Arguments      []*Node     `json:"args" nodeTypes:"call"`
+	LValue         *Node       `json:"lval" nodeTypes:"assign"`
+	RValue         *Node       `json:"rval" nodeTypes:"assign return"`
+	Immediate      interface{} `json:"ival" nodeTypes:"literal"`
 }
 
 func IsShortNode(node *Node) bool {
@@ -28,7 +29,7 @@ func IsShortNode(node *Node) bool {
 		return true
 	}
 	switch node.Type {
-	case "literal", "ref":
+	case "literal", "ref", "builtin":
 		return true
 	}
 	return false
@@ -77,11 +78,14 @@ func WriteNode(f io.Writer, node *Node) {
 	case "literal":
 		fmt.Fprintf(f, `{"type": "literal", "ival": %#v`, node.Immediate)
 	case "ref":
-		fmt.Fprintf(f, `{"type": "ref", "refn": %d`, node.ID)
+		fmt.Fprintf(f, `{"type": "ref", "refn": %d, "refl": %d`, node.ID, node.ReferenceLevel)
+	case "builtin":
+		fmt.Fprintf(f, `{"type": "builtin", "name": %q`, node.Name)
 	default:
 		fmt.Fprintf(f, "{\"type\":\"%s\"\n", node.Type)
 		switch node.Type {
 		case "var":
+			WriteField(f, "refn", node.ID)
 			WriteField(f, "name", node.Name)
 			WriteField(f, "desc", node.Description)
 		case "block":

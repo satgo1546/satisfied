@@ -1,16 +1,26 @@
 {"type":"block"
 ,"defs":
-[       {"type":"var","refn":1,"name": "a"}
-,       {"type":"var","refn":2,"name": "b"}
+[
+{"type":"var"
+,"refn":1
+,"name":"a"
+,"desc":""
+}
+,
+{"type":"var"
+,"refn":2
+,"name":"b"
+,"desc":""
+}
 ]
 ,"body":
 [
 {"type":"while"
 ,"cond":
 {"type":"call"
-,"head":"builtin-neq"
+,"head":{"type": "builtin", "name": "neq"}
 ,"args":
-[       {"type":"ref","refn":2}
+[       {"type": "ref", "refn": 2, "refl": 0}
 ,       {"type": "literal", "ival": 0}
 ]
 }
@@ -18,41 +28,42 @@
 {"type":"if"
 ,"cond":
 {"type":"call"
-,"head":"builtin-gt"
+,"head":{"type": "builtin", "name": "gt"}
 ,"args":
-[       {"type":"ref","refn":1}
-,       {"type":"ref","refn":2}
+[       {"type": "ref", "refn": 1, "refl": 0}
+,       {"type": "ref", "refn": 2, "refl": 0}
 ]
 }
 ,"then":
 {"type":"assign"
-,"lval":{"type":"ref","refn":1}
+,"lval":{"type": "ref", "refn": 1, "refl": 0}
 ,"rval":
 {"type":"call"
-,"head":"builtin-sub"
+,"head":{"type": "builtin", "name": "sub"}
 ,"args":
-[       {"type":"ref","refn":1}
-,       {"type":"ref","refn":2}
+[       {"type": "ref", "refn": 1, "refl": 0}
+,       {"type": "ref", "refn": 2, "refl": 0}
 ]
 }
 }
 ,"else":
 {"type":"assign"
-,"lval":{"type":"ref","refn":2}
+,"lval":{"type": "ref", "refn": 2, "refl": 0}
 ,"rval":
 {"type":"call"
-,"head":"builtin-sub"
+,"head":{"type": "builtin", "name": "sub"}
 ,"args":
-[       {"type":"ref","refn":2}
-,       {"type":"ref","refn":1}
+[       {"type": "ref", "refn": 2, "refl": 0}
+,       {"type": "ref", "refn": 1, "refl": 0}
 ]
 }
 }
 }
+,"else":null
 }
 ,
 {"type":"return"
-,"rval":{"type":"ref","refn":1}
+,"rval":{"type": "ref", "refn": 1, "refl": 0}
 }
 ]
 }
