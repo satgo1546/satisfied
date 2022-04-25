@@ -9,18 +9,17 @@ import (
 type Node struct {
 	Type           string      `json:"type"`
 	ReferenceLevel int         `json:"refl" nodeTypes:"ref"`
-	ID             int64       `json:"refn" nodeTypes:"var ref"`
+	ID             int         `json:"refn" nodeTypes:"var ref"`
 	Name           string      `json:"name" nodeTypes:"var builtin"`
 	Description    string      `json:"desc" nodeTypes:"var"`
 	Definitions    []*Node     `json:"defs" nodeTypes:"block"`
-	Body           []*Node     `json:"body" nodeTypes:"block"`
 	Condition      *Node       `json:"cond" nodeTypes:"if while"`
 	Then           *Node       `json:"then" nodeTypes:"if while"`
 	Else           *Node       `json:"else" nodeTypes:"if while"`
 	Head           *Node       `json:"head" nodeTypes:"call"`
 	Arguments      []*Node     `json:"args" nodeTypes:"call"`
 	LValue         *Node       `json:"lval" nodeTypes:"assign"`
-	RValue         *Node       `json:"rval" nodeTypes:"assign return"`
+	RValue         *Node       `json:"rval" nodeTypes:"block assign return"`
 	Immediate      interface{} `json:"ival" nodeTypes:"literal"`
 }
 
@@ -90,7 +89,7 @@ func WriteNode(f io.Writer, node *Node) {
 			WriteField(f, "desc", node.Description)
 		case "block":
 			WriteField(f, "defs", node.Definitions)
-			WriteField(f, "body", node.Body)
+			WriteField(f, "rval", node.RValue)
 		case "if", "while":
 			WriteField(f, "cond", node.Condition)
 			WriteField(f, "then", node.Then)

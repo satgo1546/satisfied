@@ -13,7 +13,10 @@
 ,"desc":""
 }
 ]
-,"body":
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "nop"}
+,"args":
 [
 {"type":"while"
 ,"cond":
@@ -66,4 +69,5 @@
 ,"rval":{"type": "ref", "refn": 1, "refl": 0}
 }
 ]
+}
 }
