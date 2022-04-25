@@ -18,6 +18,7 @@ const (
 	OpWhile
 
 	OpConst
+	OpCopy
 	OpZeroExtend
 	OpSignExtend
 
@@ -160,6 +161,9 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 			emit("jnz .L%d_loop", inst.Serial)
 		case OpConst:
 			emit("mov dword [esp+%d*4], %d", inst.Serial, inst.Const)
+		case OpCopy:
+			emit("mov eax, [esp+%d*4]", inst.Arg0.Serial)
+			emit("mov [esp+%d*4], eax", inst.Serial)
 		case OpNot, OpNeg:
 			emit("mov eax, [esp+%d*4]", inst.Arg0.Serial)
 			emit("%s eax", map[int]string{
