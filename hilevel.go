@@ -157,6 +157,9 @@ func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *I
 			switch node.Head.Name {
 			case "nop":
 			case "mul":
+				tail.Next = &Instruction{Opcode: OpMul, Arg0: args[0], Arg1: args[1]}
+				result = tail.Next
+			case "gt":
 				// TODO
 			}
 		}

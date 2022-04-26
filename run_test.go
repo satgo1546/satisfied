@@ -19,7 +19,8 @@ func ReadNode(f io.Reader) *Node {
 
 func TestMe(t *testing.T) {
 	for _, filename := range []string{
-		"hello.json",
+		"testdata/hello.json",
+		"testdata/arith.json",
 	} {
 		f, err := os.Open(filename)
 		if err != nil {

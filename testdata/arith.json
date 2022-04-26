@@ -1,0 +1,7 @@
+{"type":"call"
+,"head":{"type": "builtin", "name": "mul"}
+,"args":
+[       {"type": "literal", "ival": 6}
+,       {"type": "literal", "ival": 7}
+]
+}
