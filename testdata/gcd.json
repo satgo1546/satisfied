@@ -15,7 +15,7 @@
 ]
 ,"rval":
 {"type":"call"
-,"head":{"type": "builtin", "name": "nop"}
+,"head":{"type": "builtin", "name": "arglast"}
 ,"args":
 [
 {"type":"while"

@@ -155,7 +155,8 @@ func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *I
 		}
 		if node.Head.Type == "builtin" {
 			switch node.Head.Name {
-			case "nop":
+			case "arglast":
+				result = args[len(args)-1]
 			case "mul":
 				tail.Next = &Instruction{Opcode: OpMul, Arg0: args[0], Arg1: args[1]}
 				result = tail.Next
