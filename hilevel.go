@@ -106,3 +106,63 @@ func WriteNode(f io.Writer, node *Node) {
 	}
 	fmt.Fprintln(f, "}")
 }
+
+type defItem struct {
+	node         *Node
+	currentValue *Instruction
+}
+
+func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *Instruction) {
+	if node == nil {
+		head = &Instruction{Opcode: OpConst, Const: 0}
+		return head, head
+	}
+	switch node.Type {
+	case "literal":
+		head = &Instruction{Opcode: OpConst, Const: int(node.Immediate.(float64))}
+		result = head
+	case "ref":
+		return nil, definitionStack[len(definitionStack)-1+node.ReferenceLevel][node.ID].currentValue
+	case "builtin":
+		switch node.Name {
+		case "add":
+		}
+	case "block":
+		head = &Instruction{Opcode: OpConst, Const: 0}
+		defs := make(map[int]defItem, len(node.Definitions))
+		for _, d := range node.Definitions {
+			if defs[d.ID].node != nil {
+				panic("repeated refn defined")
+			}
+			defs[d.ID] = defItem{
+				node:         d,
+				currentValue: head,
+			}
+		}
+		head.Next, result = CompileNode(node.RValue, append(definitionStack, defs))
+	case "if":
+		// TODO
+	case "while":
+		// TODO
+	case "call":
+		head = &Instruction{}
+		tail := head
+		args := make([]*Instruction, len(node.Arguments))
+		for i, a := range node.Arguments {
+			tail.Next, args[i] = CompileNode(a, definitionStack)
+			for ; tail.Next != nil; tail = tail.Next {
+			}
+		}
+		if node.Head.Type == "builtin" {
+			switch node.Head.Name {
+			case "nop":
+			case "mul":
+				// TODO
+			}
+		}
+		head = head.Next
+	case "assign":
+		// TODO
+	}
+	return
+}

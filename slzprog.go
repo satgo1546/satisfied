@@ -517,7 +517,7 @@ func PEWrite(f *os.File, windows_program []byte) {
 	fmt.Fprintf(f, "Data after this point is useless.")
 }
 
-func MakeExe() {
+func MakeExe(main *Subroutine) {
 	somethingfp, _ := os.OpenFile("gen.asm", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0777)
 	outputfp = io.MultiWriter(os.Stdout, somethingfp)
 	emit_noindent("bits 32")
@@ -541,40 +541,6 @@ func MakeExe() {
 	emit("call main")
 	emit("push eax")
 	emit("call [ExitProcess]")
-	i1 := &Instruction{Opcode: OpConst, Const: 0}
-	i2 := &Instruction{Opcode: OpConst, Const: 2}
-	i3 := &Instruction{Opcode: OpConst, Const: 14}
-	i4 := &Instruction{Opcode: OpWhile}
-	i5 := &Instruction{Opcode: OpΦ, Arg1: i1}
-	i6 := &Instruction{Opcode: OpΦ, Arg1: i2}
-	i7 := &Instruction{Opcode: OpΦ, Arg1: i1}
-	i8 := &Instruction{Opcode: OpSub, Arg0: i7, Arg1: i3}
-	i9 := &Instruction{Opcode: OpIfNonzero, Arg3: i8}
-	i10 := &Instruction{Opcode: OpOr, Arg0: i6, Arg1: i1}
-	i11 := &Instruction{Opcode: OpAdd, Arg0: i5, Arg1: i6}
-	i12 := &Instruction{Opcode: OpAdd, Arg0: i7, Arg1: i2}
-	i1.Next = i2
-	i2.Next = i3
-	i3.Next = i4
-	i4.Arg0 = i5
-	i4.Arg1 = i9
-	i5.Next = i6
-	i5.Arg0 = i10
-	i6.Next = i7
-	i6.Arg0 = i11
-	i7.Next = i8
-	i7.Arg0 = i12
-	i8.Next = i9
-	i9.Arg0 = i10
-	i9.Arg3 = i8
-	i10.Next = i11
-	i11.Next = i12
-	main := &Subroutine{
-		Name: "main",
-		Args: []any{},
-		Code: i1,
-		Ret:  i6,
-	}
 	emit_subroutine(main)
 	somethingfp.Close()
 	if bytes, err := exec.Command("nasm", "gen.asm", "-o", "something.bin").CombinedOutput(); err != nil {
