@@ -100,7 +100,7 @@ table {
 	</center>
 </details>
 <details>
-	<summary>虚拟机（暂定）</summary>
+	<summary>虚拟机（废弃）</summary>
 	<p>32位，小端序。</p>
 	<h2>寄存器</h2>
 	<table border="2" cellspacing="0" cellpadding="2">
@@ -625,3 +625,33 @@ table {
 		<li>INC R → ADD R, 1</li>
 		<li>DEC R → SUB R, 1</li>
 	</ul>
+</details>
+<details>
+	<summary>中间表示（暂定）</summary>
+	<h2>原理</h2>
+	<ul>
+		<li>静态单赋值数据流。<ul>
+			<li>众人尽知LLVM之功成名就，细看发觉其bitcode版本可谓三日一minor，五日一major，迭代速度恐怖如斯。个人开发者岂有这空闲，可次次投入跟进LLVM毫无保留的更新中？故试取之精也。今有Go因其神而弃其形，自组SSA优化后端，其理类同。</li>
+		</ul></li>
+		<li>结构化控制流。静态单赋值与控制流图并非天生一对。高阶结构无控制流图之纷繁复杂，且仍可偷得些许跳转自由。<ul>
+			<li>条件分支连带其后紧随的合并块，与来路关联的<var>φ</var>函数插入于此。</li>
+			<li>只有当型循环。循环条件是条件分支。<var>φ</var>函数插入于循环体开头。</li>
+			<li>鲜见直到型循环；即便如此，大可改写为无限循环和跳出语句。无限循环改写为当型循环，循环体全部塞入条件，配以条件分支跳过预定跳出后不必再执行的语句。</li>
+		</ul></li>
+		<li>操作码贴近常见硬件，直译为佳；不必最简，<a href="https://esolangs.org/wiki/Subleq">OpSubtractBranchIfNonzero</a>少有实现。</li>
+	</ul>
+	<h2>常见问题</h2>
+	<ul>
+		<li>do { S; } while (C); → while ({ S; }, C);</li>
+		<li>break; S; → _break = 1; if (!_break) { S; }</li>
+	</ul>
+</details>
+<details>
+	<summary>源代码的标准格式</summary>
+	<h2>原理</h2>
+	<p>自JSON直接读入树结构，内存表示同样无环，故引用定义不以指针，而是凭借整数标识符和相对层级。为免去JSON不允许尾随逗号之烦，不用行末逗号，而用行首逗号。缩进干扰版本控制系统的判断，故也不缩进。一段简短的程序写作JSON看起来甚至比S-表达式都长太多，其实只是常用算术记号太精简带来的错觉。</p>
+	<h2>常见问题</h2>
+	<ul>
+		<li>{ S1; S2; } → nop(S1, S2);</li>
+	</ul>
+</details>
