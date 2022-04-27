@@ -1,7 +1,14 @@
 {"type":"call"
 ,"head":{"type": "builtin", "name": "mul"}
 ,"args":
-[       {"type": "literal", "ival": 6}
-,       {"type": "literal", "ival": 7}
+[       {"type": "literal", "ival": 7}
+,
+{"type":"call"
+,"head":{"type": "builtin", "name": "sub"}
+,"args":
+[       {"type": "literal", "ival": 8}
+,       {"type": "literal", "ival": 2}
+]
+}
 ]
 }

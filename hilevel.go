@@ -112,7 +112,11 @@ type defItem struct {
 	currentValue *Instruction
 }
 
-func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *Instruction) {
+func CompileNode(
+	node *Node,
+	definitionStack []map[int]*defItem,
+	beforeAssignment func(l *defItem, r *Instruction),
+) (head, result *Instruction) {
 	if node == nil {
 		head = &Instruction{Opcode: OpConst, Const: 0}
 		return head, head
@@ -127,21 +131,55 @@ func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *I
 		switch node.Name {
 		case "add":
 		}
+		panic("not implemented: builtins can only be called for now")
 	case "block":
 		head = &Instruction{Opcode: OpConst, Const: 0}
-		defs := make(map[int]defItem, len(node.Definitions))
+		defs := make(map[int]*defItem, len(node.Definitions))
 		for _, d := range node.Definitions {
-			if defs[d.ID].node != nil {
+			if defs[d.ID] != nil {
 				panic("repeated refn defined")
 			}
-			defs[d.ID] = defItem{
+			defs[d.ID] = &defItem{
 				node:         d,
 				currentValue: head,
 			}
 		}
-		head.Next, result = CompileNode(node.RValue, append(definitionStack, defs))
+		head.Next, result = CompileNode(node.RValue, append(definitionStack, defs), beforeAssignment)
 	case "if":
 		// TODO
+		i := &Instruction{Opcode: OpIfNonzero}
+		head, i.Arg3 = CompileNode(node.Condition, definitionStack, beforeAssignment)
+		for tail := head; ; tail = tail.Next {
+			if tail.Next == nil {
+				tail.Next = i
+				break
+			}
+		}
+		result = &Instruction{Opcode: OpΦ}
+		φs := make(map[*defItem]*Instruction)
+		i.Arg0, result.Arg0 = CompileNode(node.Then, definitionStack, func(l *defItem, r *Instruction) {
+			if φs[l] != nil {
+				φs[l].Arg0 = r
+			} else {
+				φs[l] = &Instruction{Opcode: OpΦ, Arg0: r, Arg1: l.currentValue}
+			}
+		})
+		for d, φ := range φs {
+			d.currentValue = φ.Arg1
+		}
+		i.Arg1, result.Arg1 = CompileNode(node.Else, definitionStack, func(l *defItem, r *Instruction) {
+			if φs[l] != nil {
+				φs[l].Arg1 = r
+			} else {
+				φs[l] = &Instruction{Opcode: OpΦ, Arg0: l.currentValue, Arg1: r}
+			}
+		})
+		i.Arg2 = result
+		for d, φ := range φs {
+			d.currentValue = φ
+			φ.Next = i.Arg2
+			i.Arg2 = φ
+		}
 	case "while":
 		// TODO
 	case "call":
@@ -149,7 +187,7 @@ func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *I
 		tail := head
 		args := make([]*Instruction, len(node.Arguments))
 		for i, a := range node.Arguments {
-			tail.Next, args[i] = CompileNode(a, definitionStack)
+			tail.Next, args[i] = CompileNode(a, definitionStack, beforeAssignment)
 			for ; tail.Next != nil; tail = tail.Next {
 			}
 		}
@@ -157,8 +195,19 @@ func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *I
 			switch node.Head.Name {
 			case "arglast":
 				result = args[len(args)-1]
-			case "mul":
-				tail.Next = &Instruction{Opcode: OpMul, Arg0: args[0], Arg1: args[1]}
+			case "add", "sub", "mul", "bitand", "bitor", "bitxor":
+				tail.Next = &Instruction{
+					Opcode: map[string]int{
+						"add":    OpAdd,
+						"sub":    OpSub,
+						"mul":    OpMul,
+						"bitand": OpAnd,
+						"bitor":  OpOr,
+						"bitxor": OpXor,
+					}[node.Head.Name],
+					Arg0: args[0],
+					Arg1: args[1],
+				}
 				result = tail.Next
 			case "gt":
 				// TODO
@@ -166,7 +215,17 @@ func CompileNode(node *Node, definitionStack []map[int]defItem) (head, result *I
 		}
 		head = head.Next
 	case "assign":
-		// TODO
+		switch node.LValue.Type {
+		case "ref":
+			l := definitionStack[len(definitionStack)-1+node.LValue.ReferenceLevel][node.LValue.ID]
+			head, result = CompileNode(node.RValue, definitionStack, beforeAssignment)
+			if beforeAssignment != nil {
+				beforeAssignment(l, result)
+			}
+			l.currentValue = result
+		default:
+			panic("non-lvalue in assignment lhs")
+		}
 	}
 	return
 }

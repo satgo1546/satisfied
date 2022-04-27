@@ -1,0 +1,57 @@
+{"type":"block"
+,"defs":
+[
+{"type":"var"
+,"refn":2
+,"name":"b"
+,"desc":""
+}
+,
+{"type":"var"
+,"refn":1
+,"name":"a"
+,"desc":""
+}
+]
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "arglast"}
+,"args":
+[
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 1, "refl": 0}
+,"rval":{"type": "literal", "ival": 48}
+}
+,
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 1, "refl": 0}
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "add"}
+,"args":
+[       {"type": "literal", "ival": 8}
+,       {"type": "ref", "refn": 1, "refl": 0}
+]
+}
+}
+,
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 2, "refl": 0}
+,"rval":{"type": "ref", "refn": 1, "refl": 0}
+}
+,
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 1, "refl": 0}
+,"rval":{"type": "literal", "ival": 14}
+}
+,
+{"type":"call"
+,"head":{"type": "builtin", "name": "sub"}
+,"args":
+[       {"type": "ref", "refn": 2, "refl": 0}
+,       {"type": "ref", "refn": 1, "refl": 0}
+]
+}
+]
+}
+}

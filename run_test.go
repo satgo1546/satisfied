@@ -21,6 +21,7 @@ func TestMe(t *testing.T) {
 	for _, filename := range []string{
 		"testdata/hello.json",
 		"testdata/arith.json",
+		"testdata/var.json",
 	} {
 		f, err := os.Open(filename)
 		if err != nil {
@@ -41,7 +42,7 @@ func TestMe(t *testing.T) {
 			Name: "main",
 			Args: []any{},
 		}
-		main.Code, main.Ret = CompileNode(obj, nil)
+		main.Code, main.Ret = CompileNode(obj, nil, nil)
 		MakeExe(main)
 		out, err := exec.Command("./slzprog-output.exe").CombinedOutput()
 		code := 0
