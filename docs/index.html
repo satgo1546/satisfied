@@ -639,6 +639,12 @@ table {
 			<li>鲜见直到型循环；即便如此，大可改写为无限循环和跳出语句。无限循环改写为当型循环，循环体全部塞入条件，配以条件分支跳过预定跳出后不必再执行的语句。</li>
 		</ul></li>
 		<li>操作码贴近常见硬件，直译为佳；不必最简，<a href="https://esolangs.org/wiki/Subleq">OpSubtractBranchIfNonzero</a>少有实现。</li>
+		<li>指令集合为单链表，数据结构比双链表更干净，手操也不会吃力。既然没有删除某处use的需要，便无需双向链表。</li>
+		<li>参考资料。<ul>
+			<li>Ron Cytron、Jeanne Ferrante、Barry K. Rosen、Mark N. Wegman、F. Kenneth Zadeck等人于1991年提出了高效转换任意流程图到静态单赋值形式的算法，<cite><a href="https://dl.acm.org/doi/10.1145/115372.115320">Efficiently computing static single assignment form and the control dependence graph</a></cite>这篇论文也成为了SSA宇宙的中心。不过，这并不是针对开发新式编程语言的最佳建议，因为……</li>
+			<li>Marc M. Brandis和Hanspeter Mössenböck于1994年在ACM Transactions on Programming Languages and Systems上发表的论文<cite><a href="https://dl.acm.org/doi/abs/10.1145/197320.197331">Single-pass generation of static single-assignment form for structured languages</a></cite>指出，如果源程序只含有if ~ else、while、repeat ~ until这三种控制结构，而没有break和return的话，要生成静态单赋值形式就是小菜一碟，不必用Cytron等人的那套经典三遍的方法大费周章。</li>
+			<li>Marc M. Brandis于1995年递交的百来页的科技博士学位论文<cite><a href="http://norayr.am/papers/eth11024.pdf">Optimizing compilers for structured programming languages</a></cite>中以PowerPC目标架构和Oberon编程语言为例，概略解说了一例完整的优化编译器的实现原理。在总览比较各种已有中间表示形式后，该编译器选用了卫式单赋值形式，使各种优化得以轻松实施。</li>
+		</ul></li>
 	</ul>
 	<h2>常见问题</h2>
 	<ul>
@@ -650,6 +656,7 @@ table {
 	<summary>源代码的标准格式</summary>
 	<h2>原理</h2>
 	<p>自JSON直接读入树结构，内存表示同样无环，故引用定义不以指针，而是凭借整数标识符和相对层级。为免去JSON不允许尾随逗号之烦，不用行末逗号，而用行首逗号。缩进干扰版本控制系统的判断，故也不缩进。一段简短的程序写作JSON看起来甚至比S-表达式都长太多，其实只是常用算术记号太精简带来的错觉。</p>
+	<p>编译器的Go实现使用内置的JSON库直接解析到对象。参数列表对应切片（语言中的标准列表类型），最是方便。若要以其他语言实现，也请活用内置JSON库的惯例。</p>
 	<h2>常见问题</h2>
 	<ul>
 		<li>{ S1; S2; } → nop(S1, S2);</li>
