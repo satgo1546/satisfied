@@ -91,16 +91,16 @@ func Align(n int, m int) int {
 var nextInstructionSerial int
 
 // A chaining method (i.e., that returns self) to append self to the use chain of the arguments.
-// It is obvious that maintenance of a use chain must be manual if no getters or setters are introduced.
+// It is obvious that maintenance of a use chain must be done manually if no getters or setters are introduced.
+// Since an OpConst uses nothing, there's no need to call RegisterUses on an OpConst.
 func (inst *Instruction) RegisterUses() *Instruction {
-	if inst.Arg0 != nil {
-		inst.Arg0.Uses[inst] = true
-	}
-	if inst.Arg1 != nil {
-		inst.Arg1.Uses[inst] = true
-	}
-	if inst.Arg2 != nil {
-		inst.Arg2.Uses[inst] = true
+	for _, arg := range []*Instruction{inst.Arg0, inst.Arg1, inst.Arg2} {
+		if arg != nil {
+			if arg.Uses == nil {
+				arg.Uses = make(map[*Instruction]bool)
+			}
+			arg.Uses[inst] = true
+		}
 	}
 	// Number the instruction in RegisterUses, for use in compilation of while nodes.
 	if inst.Serial == 0 {

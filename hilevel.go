@@ -146,8 +146,8 @@ func CompileNode(
 		}
 		head.Next, result = CompileNode(node.RValue, append(definitionStack, defs), beforeAssignment)
 	case "if":
-		i := &Instruction{Opcode: OpIfNonzero}
-		head, i.Arg0 = CompileNode(node.Condition, definitionStack, beforeAssignment)
+		head, result = CompileNode(node.Condition, definitionStack, beforeAssignment)
+		i := (&Instruction{Opcode: OpIfNonzero, Arg0: result}).RegisterUses()
 		head = AppendInstructions(head, i)
 		result = &Instruction{Opcode: OpΦ}
 		φs := make(map[*defItem]*Instruction)
@@ -168,8 +168,10 @@ func CompileNode(
 				φs[l] = &Instruction{Opcode: OpΦ, Arg0: l.currentValue, Arg1: r}
 			}
 		})
+		result.RegisterUses()
 		i.Next = result
 		for d, φ := range φs {
+			φ.RegisterUses()
 			d.currentValue = φ
 			φ.Next = i.Next
 			i.Next = φ
@@ -205,7 +207,7 @@ func CompileNode(
 			case "arglast":
 				result = args[len(args)-1]
 			case "add", "sub", "mul", "bitand", "bitor", "bitxor":
-				tail.Next = &Instruction{
+				tail.Next = (&Instruction{
 					Opcode: map[string]int{
 						"add":    OpAdd,
 						"sub":    OpSub,
@@ -216,11 +218,11 @@ func CompileNode(
 					}[node.Head.Name],
 					Arg0: args[0],
 					Arg1: args[1],
-				}
+				}).RegisterUses()
 				result = tail.Next
 			case "eq", "neq", "lt", "gt", "leq", "geq":
-				tail.Next = &Instruction{Opcode: OpICompare, Arg0: args[0], Arg1: args[1]}
-				tail.Next.Next = &Instruction{
+				tail.Next = (&Instruction{Opcode: OpICompare, Arg0: args[0], Arg1: args[1]}).RegisterUses()
+				tail.Next.Next = (&Instruction{
 					Opcode: map[string]int{
 						"eq":  OpIfZero,
 						"neq": OpIfNonzero,
@@ -232,12 +234,12 @@ func CompileNode(
 					Arg0:  tail.Next,
 					List0: &Instruction{Opcode: OpConst, Const: 1},
 					List1: &Instruction{Opcode: OpConst, Const: 0},
-				}
-				tail.Next.Next.Next = &Instruction{
+				}).RegisterUses()
+				tail.Next.Next.Next = (&Instruction{
 					Opcode: OpΦ,
 					Arg0:   tail.Next.Next.List0,
 					Arg1:   tail.Next.Next.List1,
-				}
+				}).RegisterUses()
 				result = tail.Next.Next.Next
 			}
 		}
@@ -247,7 +249,7 @@ func CompileNode(
 		case "ref":
 			l := definitionStack[len(definitionStack)-1+node.LValue.ReferenceLevel][node.LValue.ID]
 			head, result = CompileNode(node.RValue, definitionStack, beforeAssignment)
-			result = &Instruction{Opcode: OpCopy, Arg0: result}
+			result = (&Instruction{Opcode: OpCopy, Arg0: result}).RegisterUses()
 			head = AppendInstructions(head, result)
 			if beforeAssignment != nil {
 				beforeAssignment(l, result)
