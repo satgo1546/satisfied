@@ -62,6 +62,7 @@ type Instruction struct {
 	Arg2   *Instruction
 	Arg3   *Instruction
 	Const  int
+	Uses   map[*Instruction]bool
 }
 
 var outputfp io.Writer
@@ -83,6 +84,59 @@ func Align(n int, m int) int {
 	return n - rem + m
 }
 
+var nextInstructionSerial int
+
+// This function covers only the most common case of creating two-operand instructions that are not control structures.
+// To create a one-operand instruction, pass nil as arg1.
+// To create an OpConst, allocate one by &Instruction{} directly.
+func NewInstructionRegistered2(opcode int, arg0 *Instruction, arg1 *Instruction) *Instruction {
+	inst := &Instruction{
+		Opcode: opcode,
+		Arg0:   arg0,
+		Arg1:   arg1,
+		Serial: nextInstructionSerial,
+	}
+	nextInstructionSerial++
+	return inst.RegisterUses()
+}
+
+// A chaining method (i.e., that returns self) to append self to the use chain of the arguments.
+func (inst *Instruction) RegisterUses() *Instruction {
+	if inst.Arg0 != nil {
+		inst.Arg0.Uses[inst] = true
+	}
+	if inst.Arg1 != nil {
+		inst.Arg1.Uses[inst] = true
+	}
+	if inst.Arg2 != nil {
+		inst.Arg2.Uses[inst] = true
+	}
+	if inst.Arg3 != nil {
+		inst.Arg3.Uses[inst] = true
+	}
+	return inst
+}
+
+func (inst *Instruction) UnregisterUses() *Instruction {
+	if inst.Arg0 != nil {
+		inst.Arg0.Uses[inst] = false
+	}
+	if inst.Arg1 != nil {
+		inst.Arg1.Uses[inst] = false
+	}
+	if inst.Arg2 != nil {
+		inst.Arg2.Uses[inst] = false
+	}
+	if inst.Arg3 != nil {
+		inst.Arg3.Uses[inst] = false
+	}
+	return inst
+}
+
+func (inst *Instruction) UpdateArg0() *Instruction {
+	return inst
+}
+
 // AppendInstructions works like append (the Go built-in function for slices), in that the return value has to be assigned back, in the case of singly linked lists without a dedicated head node.
 // This function is O(n) in time.
 func AppendInstructions(base *Instruction, extension *Instruction) *Instruction {
@@ -97,17 +151,17 @@ func AppendInstructions(base *Instruction, extension *Instruction) *Instruction 
 	}
 }
 
-func NumberInstructions(inst *Instruction, start int) int {
+func RenumberInstructions(inst *Instruction, start int) int {
 	for ; inst != nil; inst = inst.Next {
 		inst.Serial = start
 		start++
 		switch inst.Opcode {
 		case OpIfNonzero, OpIfZero, OpIfNonpositive, OpIfPositive, OpIfNonnegative, OpIfNegative:
-			start = NumberInstructions(inst.Arg0, start)
-			start = NumberInstructions(inst.Arg1, start)
-			start = NumberInstructions(inst.Arg2, start)
+			start = RenumberInstructions(inst.Arg0, start)
+			start = RenumberInstructions(inst.Arg1, start)
+			start = RenumberInstructions(inst.Arg2, start)
 		case OpWhile:
-			start = NumberInstructions(inst.Arg0, start)
+			start = RenumberInstructions(inst.Arg0, start)
 		}
 	}
 	return start
@@ -215,7 +269,7 @@ func emit_subroutine(subroutine *Subroutine) {
 	// https://devblogs.microsoft.com/oldnewthing/20190111-00/?p=100685
 	emit("push ebp")
 	emit("mov ebp, esp")
-	emit("sub esp, %d*4", NumberInstructions(subroutine.Code, 0))
+	emit("sub esp, %d*4", RenumberInstructions(subroutine.Code, 0))
 	emit_instructions(subroutine.Code, nil)
 	emit("mov eax, [esp+%d*4]", subroutine.Ret.Serial)
 	emit("leave")
