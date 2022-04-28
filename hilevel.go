@@ -146,7 +146,6 @@ func CompileNode(
 		}
 		head.Next, result = CompileNode(node.RValue, append(definitionStack, defs), beforeAssignment)
 	case "if":
-		// TODO
 		i := &Instruction{Opcode: OpIfNonzero}
 		head, i.Arg3 = CompileNode(node.Condition, definitionStack, beforeAssignment)
 		for tail := head; ; tail = tail.Next {
@@ -209,8 +208,25 @@ func CompileNode(
 					Arg1: args[1],
 				}
 				result = tail.Next
-			case "gt":
-				// TODO
+			case "eq", "neq", "lt", "gt", "leq", "geq":
+				tail.Next = &Instruction{Opcode: OpICompare, Arg0: args[0], Arg1: args[1]}
+				tail.Next.Next = &Instruction{
+					Opcode: map[string]int{
+						"eq":  OpIfZero,
+						"neq": OpIfNonzero,
+						"lt":  OpIfNegative,
+						"gt":  OpIfPositive,
+						"leq": OpIfNonpositive,
+						"geq": OpIfNonnegative,
+					}[node.Head.Name],
+					Arg0: &Instruction{Opcode: OpConst, Const: 1},
+					Arg1: &Instruction{Opcode: OpConst, Const: 0},
+					Arg2: &Instruction{Opcode: OpΦ},
+					Arg3: tail.Next,
+				}
+				result = tail.Next.Next.Arg2
+				result.Arg0 = tail.Next.Next.Arg0
+				result.Arg1 = tail.Next.Next.Arg1
 			}
 		}
 		head = head.Next

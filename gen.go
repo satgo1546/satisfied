@@ -26,7 +26,8 @@ const (
 	OpAdd
 	OpSub
 	// The spaceship operator <=> in Ruby and C++20.
-	OpCompare
+	OpUCompare
+	OpICompare
 	OpMul
 	OpUDiv
 	OpIDiv
@@ -181,6 +182,14 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 				OpOr:  "or",
 				OpXor: "xor",
 			}[inst.Opcode], inst.Arg1.Serial)
+			emit("mov [esp+%d*4], eax", inst.Serial)
+		case OpUCompare, OpICompare:
+			emit("mov eax, [esp+%d*4]", inst.Arg0.Serial)
+			emit("cmp eax, [esp+%d*4]", inst.Arg1.Serial)
+			emit("set%c ch", "ag"[inst.Opcode-OpUCompare])
+			emit("set%c cl", "bl"[inst.Opcode-OpUCompare])
+			emit("sub ch, cl")
+			emit("movsx eax, ch")
 			emit("mov [esp+%d*4], eax", inst.Serial)
 		}
 	}
