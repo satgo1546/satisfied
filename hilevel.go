@@ -12,14 +12,14 @@ type Node struct {
 	ID             int         `json:"refn" nodeTypes:"var ref"`
 	Name           string      `json:"name" nodeTypes:"var builtin"`
 	Description    string      `json:"desc" nodeTypes:"var"`
-	Definitions    []*Node     `json:"defs" nodeTypes:"block"`
+	Definitions    []*Node     `json:"defs" nodeTypes:"scope"`
 	Condition      *Node       `json:"cond" nodeTypes:"if while"`
 	Then           *Node       `json:"then" nodeTypes:"if while"`
 	Else           *Node       `json:"else" nodeTypes:"if while"`
 	Head           *Node       `json:"head" nodeTypes:"call"`
 	Arguments      []*Node     `json:"args" nodeTypes:"call"`
 	LValue         *Node       `json:"lval" nodeTypes:"assign"`
-	RValue         *Node       `json:"rval" nodeTypes:"block assign return"`
+	RValue         *Node       `json:"rval" nodeTypes:"scope assign return"`
 	Immediate      interface{} `json:"ival" nodeTypes:"literal"`
 }
 
@@ -87,7 +87,7 @@ func WriteNode(f io.Writer, node *Node) {
 			WriteField(f, "refn", node.ID)
 			WriteField(f, "name", node.Name)
 			WriteField(f, "desc", node.Description)
-		case "block":
+		case "scope":
 			WriteField(f, "defs", node.Definitions)
 			WriteField(f, "rval", node.RValue)
 		case "if", "while":
@@ -132,7 +132,7 @@ func CompileNode(
 		case "add":
 		}
 		panic("not implemented: builtins can only be called for now")
-	case "block":
+	case "scope":
 		head = &Instruction{Opcode: OpConst, Const: 0}
 		defs := make(map[int]*defItem, len(node.Definitions))
 		for _, d := range node.Definitions {
