@@ -148,12 +148,7 @@ func CompileNode(
 	case "if":
 		i := &Instruction{Opcode: OpIfNonzero}
 		head, i.Arg3 = CompileNode(node.Condition, definitionStack, beforeAssignment)
-		for tail := head; ; tail = tail.Next {
-			if tail.Next == nil {
-				tail.Next = i
-				break
-			}
-		}
+		head = AppendInstructions(head, i)
 		result = &Instruction{Opcode: OpΦ}
 		φs := make(map[*defItem]*Instruction)
 		i.Arg0, result.Arg0 = CompileNode(node.Then, definitionStack, func(l *defItem, r *Instruction) {
@@ -235,6 +230,8 @@ func CompileNode(
 		case "ref":
 			l := definitionStack[len(definitionStack)-1+node.LValue.ReferenceLevel][node.LValue.ID]
 			head, result = CompileNode(node.RValue, definitionStack, beforeAssignment)
+			result = &Instruction{Opcode: OpCopy, Arg0: result}
+			head = AppendInstructions(head, result)
 			if beforeAssignment != nil {
 				beforeAssignment(l, result)
 			}

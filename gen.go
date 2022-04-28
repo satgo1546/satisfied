@@ -83,6 +83,20 @@ func Align(n int, m int) int {
 	return n - rem + m
 }
 
+// AppendInstructions works like append (the Go built-in function for slices), in that the return value has to be assigned back, in the case of singly linked lists without a dedicated head node.
+// This function is O(n) in time.
+func AppendInstructions(base *Instruction, extension *Instruction) *Instruction {
+	if base == nil {
+		return extension
+	}
+	for tail := base; ; tail = tail.Next {
+		if tail.Next == nil {
+			tail.Next = extension
+			return base
+		}
+	}
+}
+
 func NumberInstructions(inst *Instruction, start int) int {
 	for ; inst != nil; inst = inst.Next {
 		inst.Serial = start
