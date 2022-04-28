@@ -176,6 +176,21 @@ func CompileNode(
 		}
 	case "while":
 		// TODO
+		//
+		// At the time a new OpΦ is created, there may already be accesses to the variable within the loop, refering to a definition somewhere outside, which must be amended.
+		// It is infeasible to replace all uses of the old value blindly, because
+		// • the value can be shared between different variables, and
+		// • there can be uses outside the loop, which must not change.
+		// The former is remedied by mandating an OpCopy at each assignment.
+		// 10.1145/197320.197331 solves the latter by allocating instruction objects in contiguous memory so that their addresses increase monotonically. Uses outside are then easily distinguished by address ≶ the loop instruction.
+		// eth11024 does a dominance test to determine whether an instruction is inside the loop. I don't know how this is done exactly as the dominance test requires a built-up tree to work efficiently.
+		// Here, I tag each instruction with a serial number in RegisterUses. Outsiders are rejected through a simple comparison.
+		φs := make(map[*defItem]*Instruction)
+		for d, φ := range φs {
+			d.currentValue = φ
+			φ.Next = head.List0
+			head.List0 = φ
+		}
 	case "call":
 		head = &Instruction{}
 		tail := head
