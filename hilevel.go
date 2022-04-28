@@ -168,11 +168,11 @@ func CompileNode(
 				φs[l] = &Instruction{Opcode: OpΦ, Arg0: l.currentValue, Arg1: r}
 			}
 		})
-		i.List2 = result
+		i.Next = result
 		for d, φ := range φs {
 			d.currentValue = φ
-			φ.Next = i.List2
-			i.List2 = φ
+			φ.Next = i.Next
+			i.Next = φ
 		}
 	case "while":
 		// TODO
@@ -232,11 +232,13 @@ func CompileNode(
 					Arg0:  tail.Next,
 					List0: &Instruction{Opcode: OpConst, Const: 1},
 					List1: &Instruction{Opcode: OpConst, Const: 0},
-					List2: &Instruction{Opcode: OpΦ},
 				}
-				result = tail.Next.Next.List2
-				result.Arg0 = tail.Next.Next.List0
-				result.Arg1 = tail.Next.Next.List1
+				tail.Next.Next.Next = &Instruction{
+					Opcode: OpΦ,
+					Arg0:   tail.Next.Next.List0,
+					Arg1:   tail.Next.Next.List1,
+				}
+				result = tail.Next.Next.Next
 			}
 		}
 		head = head.Next

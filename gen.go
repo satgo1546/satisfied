@@ -52,6 +52,9 @@ type Subroutine struct {
 	Ret  *Instruction
 }
 
+// There are no three-operand instructions for now.
+// Arg2 is reserved for future operations like fused multiply-add.
+// vpblendd in x86 AVX2 has four operands, but the first serves only as the destination.
 type Instruction struct {
 	Next   *Instruction
 	Info   int
@@ -62,7 +65,6 @@ type Instruction struct {
 	Arg2   *Instruction
 	List0  *Instruction
 	List1  *Instruction
-	List2  *Instruction
 	Const  int
 	Uses   map[*Instruction]bool
 }
@@ -110,13 +112,13 @@ func (inst *Instruction) RegisterUses() *Instruction {
 
 func (inst *Instruction) UnregisterUses() *Instruction {
 	if inst.Arg0 != nil {
-		inst.Arg0.Uses[inst] = false
+		delete(inst.Arg0.Uses, inst)
 	}
 	if inst.Arg1 != nil {
-		inst.Arg1.Uses[inst] = false
+		delete(inst.Arg1.Uses, inst)
 	}
 	if inst.Arg2 != nil {
-		inst.Arg2.Uses[inst] = false
+		delete(inst.Arg2.Uses, inst)
 	}
 	return inst
 }
@@ -141,7 +143,6 @@ func RenumberInstructions(inst *Instruction, start int) int {
 		start++
 		start = RenumberInstructions(inst.List0, start)
 		start = RenumberInstructions(inst.List1, start)
-		start = RenumberInstructions(inst.List2, start)
 	}
 	return start
 }
@@ -199,7 +200,8 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 			emit_instructions(inst.List1, nil)
 
 			emit_noindent(".L%d_end:", inst.Serial)
-			emit_instructions(inst.List2, inst)
+			emit_instructions(inst.Next, inst)
+			return
 		case OpWhile:
 			emit("mov dword [esp+%d*4], 0", inst.Serial)
 			emit_noindent(".L%d_loop:", inst.Serial)
