@@ -60,7 +60,9 @@ type Instruction struct {
 	Arg0   *Instruction
 	Arg1   *Instruction
 	Arg2   *Instruction
-	Arg3   *Instruction
+	List0  *Instruction
+	List1  *Instruction
+	List2  *Instruction
 	Const  int
 	Uses   map[*Instruction]bool
 }
@@ -86,20 +88,6 @@ func Align(n int, m int) int {
 
 var nextInstructionSerial int
 
-// This function covers only the most common case of creating two-operand instructions that are not control structures.
-// To create a one-operand instruction, pass nil as arg1.
-// To create an OpConst, allocate one by &Instruction{} directly.
-func NewInstructionRegistered2(opcode int, arg0 *Instruction, arg1 *Instruction) *Instruction {
-	inst := &Instruction{
-		Opcode: opcode,
-		Arg0:   arg0,
-		Arg1:   arg1,
-		Serial: nextInstructionSerial,
-	}
-	nextInstructionSerial++
-	return inst.RegisterUses()
-}
-
 // A chaining method (i.e., that returns self) to append self to the use chain of the arguments.
 func (inst *Instruction) RegisterUses() *Instruction {
 	if inst.Arg0 != nil {
@@ -111,8 +99,9 @@ func (inst *Instruction) RegisterUses() *Instruction {
 	if inst.Arg2 != nil {
 		inst.Arg2.Uses[inst] = true
 	}
-	if inst.Arg3 != nil {
-		inst.Arg3.Uses[inst] = true
+	if inst.Serial == 0 {
+		nextInstructionSerial++
+		inst.Serial = nextInstructionSerial
 	}
 	return inst
 }
@@ -127,13 +116,6 @@ func (inst *Instruction) UnregisterUses() *Instruction {
 	if inst.Arg2 != nil {
 		inst.Arg2.Uses[inst] = false
 	}
-	if inst.Arg3 != nil {
-		inst.Arg3.Uses[inst] = false
-	}
-	return inst
-}
-
-func (inst *Instruction) UpdateArg0() *Instruction {
 	return inst
 }
 
@@ -155,14 +137,9 @@ func RenumberInstructions(inst *Instruction, start int) int {
 	for ; inst != nil; inst = inst.Next {
 		inst.Serial = start
 		start++
-		switch inst.Opcode {
-		case OpIfNonzero, OpIfZero, OpIfNonpositive, OpIfPositive, OpIfNonnegative, OpIfNegative:
-			start = RenumberInstructions(inst.Arg0, start)
-			start = RenumberInstructions(inst.Arg1, start)
-			start = RenumberInstructions(inst.Arg2, start)
-		case OpWhile:
-			start = RenumberInstructions(inst.Arg0, start)
-		}
+		start = RenumberInstructions(inst.List0, start)
+		start = RenumberInstructions(inst.List1, start)
+		start = RenumberInstructions(inst.List2, start)
 	}
 	return start
 }
@@ -200,7 +177,7 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 			panic("OpΦ in the middle of a block")
 		case OpIfNonzero, OpIfZero, OpIfNonpositive, OpIfPositive, OpIfNonnegative, OpIfNegative:
 			// L%d_then, L%d_else and L%d_end labels are necessary since empty bodies have no instruction numbers themselves.
-			emit("cmp dword [esp+%d*4], 0", inst.Arg3.Serial)
+			emit("cmp dword [esp+%d*4], 0", inst.Arg0.Serial)
 			emit("%s .L%d_else", map[int]string{
 				OpIfNonzero:     "je",
 				OpIfZero:        "jne",
@@ -212,21 +189,21 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 
 			emit_noindent(".L%d_then:", inst.Serial)
 			emit("mov dword [esp+%d*4], 1", inst.Serial)
-			emit_instructions(inst.Arg0, nil)
+			emit_instructions(inst.List0, nil)
 			emit("jmp .L%d_end", inst.Serial)
 
 			emit_noindent(".L%d_else:", inst.Serial)
 			emit("mov dword [esp+%d*4], 0", inst.Serial)
-			emit_instructions(inst.Arg1, nil)
+			emit_instructions(inst.List1, nil)
 
 			emit_noindent(".L%d_end:", inst.Serial)
-			emit_instructions(inst.Arg2, inst)
+			emit_instructions(inst.List2, inst)
 		case OpWhile:
 			emit("mov dword [esp+%d*4], 0", inst.Serial)
 			emit_noindent(".L%d_loop:", inst.Serial)
-			emit_instructions(inst.Arg0, inst)
+			emit_instructions(inst.List0, inst)
 			emit("mov dword [esp+%d*4], 1", inst.Serial)
-			emit("test dword [esp+%d*4], 1", inst.Arg1.Serial)
+			emit("test dword [esp+%d*4], 1", inst.Arg0.Serial)
 			emit("jnz .L%d_loop", inst.Serial)
 		case OpConst:
 			emit("mov dword [esp+%d*4], %d", inst.Serial, inst.Const)

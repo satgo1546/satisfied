@@ -147,11 +147,11 @@ func CompileNode(
 		head.Next, result = CompileNode(node.RValue, append(definitionStack, defs), beforeAssignment)
 	case "if":
 		i := &Instruction{Opcode: OpIfNonzero}
-		head, i.Arg3 = CompileNode(node.Condition, definitionStack, beforeAssignment)
+		head, i.Arg0 = CompileNode(node.Condition, definitionStack, beforeAssignment)
 		head = AppendInstructions(head, i)
 		result = &Instruction{Opcode: OpΦ}
 		φs := make(map[*defItem]*Instruction)
-		i.Arg0, result.Arg0 = CompileNode(node.Then, definitionStack, func(l *defItem, r *Instruction) {
+		i.List0, result.Arg0 = CompileNode(node.Then, definitionStack, func(l *defItem, r *Instruction) {
 			if φs[l] != nil {
 				φs[l].Arg0 = r
 			} else {
@@ -161,18 +161,18 @@ func CompileNode(
 		for d, φ := range φs {
 			d.currentValue = φ.Arg1
 		}
-		i.Arg1, result.Arg1 = CompileNode(node.Else, definitionStack, func(l *defItem, r *Instruction) {
+		i.List1, result.Arg1 = CompileNode(node.Else, definitionStack, func(l *defItem, r *Instruction) {
 			if φs[l] != nil {
 				φs[l].Arg1 = r
 			} else {
 				φs[l] = &Instruction{Opcode: OpΦ, Arg0: l.currentValue, Arg1: r}
 			}
 		})
-		i.Arg2 = result
+		i.List2 = result
 		for d, φ := range φs {
 			d.currentValue = φ
-			φ.Next = i.Arg2
-			i.Arg2 = φ
+			φ.Next = i.List2
+			i.List2 = φ
 		}
 	case "while":
 		// TODO
@@ -214,14 +214,14 @@ func CompileNode(
 						"leq": OpIfNonpositive,
 						"geq": OpIfNonnegative,
 					}[node.Head.Name],
-					Arg0: &Instruction{Opcode: OpConst, Const: 1},
-					Arg1: &Instruction{Opcode: OpConst, Const: 0},
-					Arg2: &Instruction{Opcode: OpΦ},
-					Arg3: tail.Next,
+					Arg0:  tail.Next,
+					List0: &Instruction{Opcode: OpConst, Const: 1},
+					List1: &Instruction{Opcode: OpConst, Const: 0},
+					List2: &Instruction{Opcode: OpΦ},
 				}
-				result = tail.Next.Next.Arg2
-				result.Arg0 = tail.Next.Next.Arg0
-				result.Arg1 = tail.Next.Next.Arg1
+				result = tail.Next.Next.List2
+				result.Arg0 = tail.Next.Next.List0
+				result.Arg1 = tail.Next.Next.List1
 			}
 		}
 		head = head.Next
