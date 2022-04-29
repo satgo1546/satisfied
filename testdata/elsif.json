@@ -1,0 +1,53 @@
+{"type":"scope"
+,"defs":
+[
+{"type":"var"
+,"refn":24
+,"name":"x"
+,"desc":""
+}
+]
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "arglast"}
+,"args":
+[
+{"type":"if"
+,"cond":
+{"type":"call"
+,"head":{"type": "builtin", "name": "lt"}
+,"args":
+[       {"type": "ref", "refn": 24, "refl": 0}
+,       {"type": "literal", "ival": -9}
+]
+}
+,"then":{"type": "literal", "ival": 0}
+,"else":
+{"type":"if"
+,"cond":
+{"type":"call"
+,"head":{"type": "builtin", "name": "leq"}
+,"args":
+[       {"type": "ref", "refn": 24, "refl": 0}
+,       {"type": "literal", "ival": 9}
+]
+}
+,"then":
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"rval":{"type": "literal", "ival": 21}
+}
+,"else":{"type": "literal", "ival": 0}
+}
+}
+,
+{"type":"call"
+,"head":{"type": "builtin", "name": "add"}
+,"args":
+[       {"type": "ref", "refn": 24, "refl": 0}
+,       {"type": "ref", "refn": 24, "refl": 0}
+]
+}
+]
+}
+}
