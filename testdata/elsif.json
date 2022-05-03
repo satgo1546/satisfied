@@ -17,7 +17,7 @@
 {"type":"call"
 ,"head":{"type": "builtin", "name": "lt"}
 ,"args":
-[       {"type": "ref", "refn": 24, "refl": 0}
+[       {"type": "ref", "refl": 0, "refn": 24}
 ,       {"type": "literal", "ival": -9}
 ]
 }
@@ -26,12 +26,12 @@
 ,"cond":{"type": "literal", "ival": 0}
 ,"then":
 {"type":"assign"
-,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"lval":{"type": "ref", "refl": 0, "refn": 24}
 ,"rval":{"type": "literal", "ival": 15}
 }
 ,"else":
 {"type":"assign"
-,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"lval":{"type": "ref", "refl": 0, "refn": 24}
 ,"rval":{"type": "literal", "ival": 12}
 }
 }
@@ -41,18 +41,18 @@
 {"type":"call"
 ,"head":{"type": "builtin", "name": "leq"}
 ,"args":
-[       {"type": "ref", "refn": 24, "refl": 0}
+[       {"type": "ref", "refl": 0, "refn": 24}
 ,       {"type": "literal", "ival": 9}
 ]
 }
 ,"then":
 {"type":"assign"
-,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"lval":{"type": "ref", "refl": 0, "refn": 24}
 ,"rval":{"type": "literal", "ival": 21}
 }
 ,"else":
 {"type":"assign"
-,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"lval":{"type": "ref", "refl": 0, "refn": 24}
 ,"rval":{"type": "literal", "ival": 18}
 }
 }
@@ -61,8 +61,8 @@
 {"type":"call"
 ,"head":{"type": "builtin", "name": "add"}
 ,"args":
-[       {"type": "ref", "refn": 24, "refl": 0}
-,       {"type": "ref", "refn": 24, "refl": 0}
+[       {"type": "ref", "refl": 0, "refn": 24}
+,       {"type": "ref", "refl": 0, "refn": 24}
 ]
 }
 ]

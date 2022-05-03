@@ -77,7 +77,7 @@ func WriteNode(f io.Writer, node *Node) {
 	case "literal":
 		fmt.Fprintf(f, `{"type": "literal", "ival": %#v`, node.Immediate)
 	case "ref":
-		fmt.Fprintf(f, `{"type": "ref", "refn": %d, "refl": %d`, node.ID, node.ReferenceLevel)
+		fmt.Fprintf(f, `{"type": "ref", "refl": %d, "refn": %d`, node.ReferenceLevel, node.ID)
 	case "builtin":
 		fmt.Fprintf(f, `{"type": "builtin", "name": %q`, node.Name)
 	default:
