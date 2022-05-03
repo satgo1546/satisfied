@@ -91,6 +91,38 @@ func Align(n int, m int) int {
 
 var nextInstructionSerial int
 
+func PrintInstructions(f io.Writer, inst *Instruction, indent int, ch rune) {
+	fmt.Fprintf(f, "%*cL%d: Op%d", indent, ch, inst.Serial, inst.Opcode)
+	if inst.Arg0 != nil {
+		fmt.Fprintf(f, ", %d", inst.Arg0.Serial)
+		if inst.Arg1 != nil {
+			fmt.Fprintf(f, ", %d", inst.Arg1.Serial)
+			if inst.Arg2 != nil {
+				fmt.Fprintf(f, ", %d", inst.Arg2.Serial)
+			}
+		}
+	}
+	if inst.Opcode == OpConst {
+		fmt.Fprintf(f, "=OpConst %d", inst.Const)
+	}
+	if len(inst.Uses) != 0 {
+		fmt.Fprintf(f, ", used in")
+		for i := range inst.Uses {
+			fmt.Fprintf(f, " %d", i.Serial)
+		}
+	}
+	fmt.Fprintf(f, "\n")
+	if inst.List0 != nil {
+		PrintInstructions(f, inst.List0, indent+1, '.')
+	}
+	if inst.List1 != nil {
+		PrintInstructions(f, inst.List1, indent+1, ':')
+	}
+	if inst.Next != nil {
+		PrintInstructions(f, inst.Next, indent, ch)
+	}
+}
+
 // A chaining method (i.e., that returns self) to append self to the use chain of the arguments.
 // It is obvious that maintenance of a use chain must be done manually if no getters or setters are introduced.
 // Since an OpConst uses nothing, there's no need to call RegisterUses on an OpConst.

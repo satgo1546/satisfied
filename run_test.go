@@ -47,6 +47,10 @@ func TestMe(t *testing.T) {
 			Args: []any{},
 		}
 		main.Code, main.Ret = CompileNode(obj, nil, nil)
+		fmt.Printf("%s\n", filename)
+		RenumberInstructions(main.Code, 0)
+		PrintInstructions(os.Stdout, main.Code, 1, '.')
+		fmt.Println()
 		MakeExe(main)
 		out, err := exec.Command("./slzprog-output.exe").CombinedOutput()
 		code := 0

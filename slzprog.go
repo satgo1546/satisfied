@@ -519,7 +519,7 @@ func PEWrite(f *os.File, windows_program []byte) {
 
 func MakeExe(main *Subroutine) {
 	somethingfp, _ := os.OpenFile("gen.asm", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0777)
-	outputfp = io.MultiWriter(os.Stdout, somethingfp)
+	outputfp = somethingfp
 	emit_noindent("bits 32")
 	emit_noindent("org %#x", 0x00403000)
 	for i, name := range []string{
