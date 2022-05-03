@@ -21,7 +21,20 @@
 ,       {"type": "literal", "ival": -9}
 ]
 }
-,"then":{"type": "literal", "ival": 0}
+,"then":
+{"type":"if"
+,"cond":{"type": "literal", "ival": 0}
+,"then":
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"rval":{"type": "literal", "ival": 15}
+}
+,"else":
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"rval":{"type": "literal", "ival": 12}
+}
+}
 ,"else":
 {"type":"if"
 ,"cond":
@@ -37,7 +50,11 @@
 ,"lval":{"type": "ref", "refn": 24, "refl": 0}
 ,"rval":{"type": "literal", "ival": 21}
 }
-,"else":{"type": "literal", "ival": 0}
+,"else":
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 24, "refl": 0}
+,"rval":{"type": "literal", "ival": 18}
+}
 }
 }
 ,
