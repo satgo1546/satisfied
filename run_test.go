@@ -25,6 +25,7 @@ func TestMe(t *testing.T) {
 		"testdata/if.json",
 		"testdata/elsif.json",
 		"testdata/ternary.json",
+		"testdata/gcd.json",
 	} {
 		f, err := os.Open(filename)
 		if err != nil {

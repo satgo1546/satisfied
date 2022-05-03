@@ -18,6 +18,16 @@
 ,"head":{"type": "builtin", "name": "arglast"}
 ,"args":
 [
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 1, "refl": 0}
+,"rval":{"type": "literal", "ival": 462}
+}
+,
+{"type":"assign"
+,"lval":{"type": "ref", "refn": 2, "refl": 0}
+,"rval":{"type": "literal", "ival": 1050}
+}
+,
 {"type":"while"
 ,"cond":
 {"type":"call"
@@ -62,12 +72,9 @@
 }
 }
 }
-,"else":null
+,"else":{"type": "literal", "ival": 0}
 }
-,
-{"type":"return"
-,"rval":{"type": "ref", "refn": 1, "refl": 0}
-}
+,       {"type": "ref", "refn": 1, "refl": 0}
 ]
 }
 }

@@ -8,6 +8,7 @@ import (
 const (
 	OpNoOp = iota
 
+	// OpΦ.Arg2 is transient and acts as a “save stack” in TeX lingo, so that the compiler can roll back assignments after a control structure.
 	OpΦ
 	OpIfNonzero
 	OpIfZero
@@ -110,7 +111,7 @@ func (inst *Instruction) RegisterUses() *Instruction {
 	return inst
 }
 
-func (inst *Instruction) UnregisterUses() *Instruction {
+func (inst *Instruction) UnregisterUses() {
 	if inst.Arg0 != nil {
 		delete(inst.Arg0.Uses, inst)
 	}
@@ -120,7 +121,28 @@ func (inst *Instruction) UnregisterUses() *Instruction {
 	if inst.Arg2 != nil {
 		delete(inst.Arg2.Uses, inst)
 	}
-	return inst
+}
+
+func (old *Instruction) ReplaceUsesWithMinSerial(new *Instruction, minSerial int) {
+	for inst := range old.Uses {
+		if inst.Serial >= minSerial {
+			inst.UnregisterUses()
+			if inst.Arg0 == old {
+				inst.Arg0 = new
+			}
+			if inst.Arg1 == old {
+				inst.Arg1 = new
+			}
+			if inst.Arg2 == old {
+				inst.Arg2 = new
+			}
+			inst.RegisterUses()
+		}
+	}
+}
+
+func (old *Instruction) ReplaceUses(new *Instruction) {
+	old.ReplaceUsesWithMinSerial(new, 0)
 }
 
 // AppendInstructions works like append (the Go built-in function for slices), in that the return value has to be assigned back, in the case of singly linked lists without a dedicated head node.
@@ -159,6 +181,7 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 		emit_noindent(".L%d: ; %d φ instruction(s)", inst.Serial, φ)
 		emit("sub esp, %d*4", φ)
 		for j := 0; j < φ; j++ {
+			emit("; %p = %+v", inst, inst)
 			emit("mov eax, [esp+(%d+%d)*4]", inst.Arg0.Serial, φ)
 			emit("test dword [esp+(%d+%d)*4], 1", pred0.Serial, φ)
 			emit("cmovz eax, [esp+(%d+%d)*4]", inst.Arg1.Serial, φ)

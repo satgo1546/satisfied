@@ -155,30 +155,33 @@ func CompileNode(
 			if φs[l] != nil {
 				φs[l].Arg0 = r
 			} else {
-				φs[l] = &Instruction{Opcode: OpΦ, Arg0: r, Arg1: l.currentValue}
+				φs[l] = &Instruction{Opcode: OpΦ, Arg0: r, Arg1: l.currentValue, Arg2: l.currentValue}
 			}
 		})
 		for d, φ := range φs {
-			d.currentValue = φ.Arg1
+			d.currentValue = φ.Arg2
 		}
 		i.List1, result.Arg1 = CompileNode(node.Else, definitionStack, func(l *defItem, r *Instruction) {
 			if φs[l] != nil {
 				φs[l].Arg1 = r
 			} else {
-				φs[l] = &Instruction{Opcode: OpΦ, Arg0: l.currentValue, Arg1: r}
+				φs[l] = &Instruction{Opcode: OpΦ, Arg0: l.currentValue, Arg1: r, Arg2: l.currentValue}
 			}
 		})
 		result.RegisterUses()
 		i.Next = result
 		for d, φ := range φs {
+			d.currentValue = φ.Arg2
+			φ.Arg2 = nil
 			φ.RegisterUses()
+			if beforeAssignment != nil {
+				beforeAssignment(d, φ)
+			}
 			d.currentValue = φ
 			φ.Next = i.Next
 			i.Next = φ
 		}
 	case "while":
-		// TODO
-		//
 		// At the time a new OpΦ is created, there may already be accesses to the variable within the loop, refering to a definition somewhere outside, which must be amended.
 		// It is infeasible to replace all uses of the old value blindly, because
 		// • the value can be shared between different variables, and
@@ -187,8 +190,30 @@ func CompileNode(
 		// 10.1145/197320.197331 solves the latter by allocating instruction objects in contiguous memory so that their addresses increase monotonically. Uses outside are then easily distinguished by address ≶ the loop instruction.
 		// eth11024 does a dominance test to determine whether an instruction is inside the loop. I don't know how this is done exactly as the dominance test requires a built-up tree to work efficiently.
 		// Here, I tag each instruction with a serial number in RegisterUses. Outsiders are rejected through a simple comparison.
+		head = (&Instruction{
+			Opcode: OpWhile,
+			Arg0:   &Instruction{Opcode: OpIfNonzero},
+		}).RegisterUses()
 		φs := make(map[*defItem]*Instruction)
+		h := func(l *defItem, r *Instruction) {
+			if φs[l] != nil {
+				φs[l].Arg0 = r
+			} else {
+				φs[l] = &Instruction{Opcode: OpΦ, Arg0: r, Arg1: l.currentValue}
+				l.currentValue.ReplaceUsesWithMinSerial(φs[l], head.Serial)
+			}
+		}
+		head.List0, head.Arg0.Arg0 = CompileNode(node.Condition, definitionStack, h)
+		head.List0 = AppendInstructions(head.List0, head.Arg0.RegisterUses())
+		head.Arg0.List0, _ = CompileNode(node.Then, definitionStack, h)
+		result = &Instruction{Opcode: OpConst, Const: 0}
+		head.Next = result
 		for d, φ := range φs {
+			φ.RegisterUses()
+			d.currentValue = φ.Arg1
+			if beforeAssignment != nil {
+				beforeAssignment(d, φ)
+			}
 			d.currentValue = φ
 			φ.Next = head.List0
 			head.List0 = φ
