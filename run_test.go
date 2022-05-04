@@ -25,6 +25,7 @@ func TestMe(t *testing.T) {
 		"testdata/if.json",
 		"testdata/elsif.json",
 		"testdata/ternary.json",
+		"testdata/fib.json",
 		"testdata/gcd.json",
 	} {
 		f, err := os.Open(filename)
@@ -57,10 +58,10 @@ func TestMe(t *testing.T) {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code = exitErr.ExitCode()
 		} else {
-			t.Errorf("bad executable: %v", err)
+			t.Errorf("bad executable in %s: %v", filename, err)
 		}
 		if code != 42 {
-			t.Errorf("not 42 but %d", code)
+			t.Errorf("not 42 but %d in %s", code, filename)
 		}
 		fmt.Printf("%s", out)
 	}

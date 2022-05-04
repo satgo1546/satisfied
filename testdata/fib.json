@@ -1,0 +1,88 @@
+{"type":"scope"
+,"defs":
+[
+{"type":"var"
+,"refn":1
+,"name":"a"
+,"desc":""
+}
+,
+{"type":"var"
+,"refn":2
+,"name":"b"
+,"desc":""
+}
+,
+{"type":"var"
+,"refn":14
+,"name":"i"
+,"desc":""
+}
+]
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "arglast"}
+,"args":
+[
+{"type":"assign"
+,"lval":{"type": "ref", "refl": 0, "refn": 2}
+,"rval":{"type": "literal", "ival": 2}
+}
+,
+{"type":"while"
+,"cond":
+{"type":"call"
+,"head":{"type": "builtin", "name": "lt"}
+,"args":
+[       {"type": "ref", "refl": 0, "refn": 14}
+,       {"type": "literal", "ival": 14}
+]
+}
+,"then":
+{"type":"call"
+,"head":{"type": "builtin", "name": "arglast"}
+,"args":
+[
+{"type":"assign"
+,"lval":{"type": "ref", "refl": 0, "refn": 2}
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "add"}
+,"args":
+[       {"type": "ref", "refl": 0, "refn": 2}
+,       {"type": "ref", "refl": 0, "refn": 1}
+]
+}
+}
+,
+{"type":"assign"
+,"lval":{"type": "ref", "refl": 0, "refn": 1}
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "sub"}
+,"args":
+[       {"type": "ref", "refl": 0, "refn": 2}
+,       {"type": "ref", "refl": 0, "refn": 1}
+]
+}
+}
+,
+{"type":"assign"
+,"lval":{"type": "ref", "refl": 0, "refn": 14}
+,"rval":
+{"type":"call"
+,"head":{"type": "builtin", "name": "add"}
+,"args":
+[       {"type": "ref", "refl": 0, "refn": 14}
+,       {"type": "literal", "ival": 2}
+]
+}
+}
+]
+}
+,"else":{"type": "literal", "ival": 0}
+}
+,       {"type": "ref", "refl": 0, "refn": 2}
+]
+}
+}
