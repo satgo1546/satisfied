@@ -92,6 +92,9 @@ func Align(n int, m int) int {
 var nextInstructionSerial int
 
 func PrintInstructions(f io.Writer, inst *Instruction, indent int, ch rune) {
+	if inst == nil {
+		return
+	}
 	fmt.Fprintf(f, "%*cL%d: Op%d", indent, ch, inst.Serial, inst.Opcode)
 	if inst.Arg0 != nil {
 		fmt.Fprintf(f, ", %d", inst.Arg0.Serial)
@@ -112,15 +115,9 @@ func PrintInstructions(f io.Writer, inst *Instruction, indent int, ch rune) {
 		}
 	}
 	fmt.Fprintf(f, "\n")
-	if inst.List0 != nil {
-		PrintInstructions(f, inst.List0, indent+1, '.')
-	}
-	if inst.List1 != nil {
-		PrintInstructions(f, inst.List1, indent+1, ':')
-	}
-	if inst.Next != nil {
-		PrintInstructions(f, inst.Next, indent, ch)
-	}
+	PrintInstructions(f, inst.List0, indent+1, '.')
+	PrintInstructions(f, inst.List1, indent+1, ':')
+	PrintInstructions(f, inst.Next, indent, ch)
 }
 
 // A chaining method (i.e., that returns self) to append self to the use chain of the arguments.
