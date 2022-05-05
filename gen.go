@@ -198,7 +198,11 @@ func RenumberInstructions(inst *Instruction, start int) int {
 	return start
 }
 
-func emit_instructions(inst *Instruction, pred0 *Instruction) {
+func EmitInstructions(
+	inst *Instruction,
+	pred0 *Instruction, // controls OpΦ
+	backedges map[*Instruction]*Instruction, // Arg0 (an OpIf) ↦ OpWhile
+) {
 	// SSA φ-functions must be executed simultaneously if interpreted.
 	// Reference: Interpreting programs in static single assignment form by Jeffery von Ronne, Ning Wang, and Michael Franz.
 	φ := 0
@@ -244,23 +248,30 @@ func emit_instructions(inst *Instruction, pred0 *Instruction) {
 
 			emit_noindent(".L%d_then:", inst.Serial)
 			emit("mov dword [esp+%d*4], 1", inst.Serial)
-			emit_instructions(inst.List0, nil)
-			emit("jmp .L%d_end", inst.Serial)
+			EmitInstructions(inst.List0, nil, backedges)
+			if backedges[inst] != nil {
+				emit("mov dword [esp+%d*4], 1", backedges[inst].Serial)
+				emit("jmp .L%d_loop", backedges[inst].Serial)
+				delete(backedges, inst)
+			} else {
+				emit("jmp .L%d_end", inst.Serial)
+			}
 
 			emit_noindent(".L%d_else:", inst.Serial)
 			emit("mov dword [esp+%d*4], 0", inst.Serial)
-			emit_instructions(inst.List1, nil)
+			EmitInstructions(inst.List1, nil, backedges)
 
 			emit_noindent(".L%d_end:", inst.Serial)
-			emit_instructions(inst.Next, inst)
+			EmitInstructions(inst.Next, inst, backedges)
 			return
 		case OpWhile:
 			emit("mov dword [esp+%d*4], 0", inst.Serial)
 			emit_noindent(".L%d_loop:", inst.Serial)
-			emit_instructions(inst.List0, inst)
-			emit("mov dword [esp+%d*4], 1", inst.Serial)
-			emit("test dword [esp+%d*4], 1", inst.Arg0.Serial)
-			emit("jnz .L%d_loop", inst.Serial)
+			if backedges[inst.Arg0] != nil {
+				panic("condition already used by another OpWhile")
+			}
+			backedges[inst.Arg0] = inst
+			EmitInstructions(inst.List0, inst, backedges)
 		case OpConst:
 			emit("mov dword [esp+%d*4], %d", inst.Serial, inst.Const)
 		case OpCopy:
@@ -303,7 +314,7 @@ func emit_subroutine(subroutine *Subroutine) {
 	emit("push ebp")
 	emit("mov ebp, esp")
 	emit("sub esp, %d*4", RenumberInstructions(subroutine.Code, 0))
-	emit_instructions(subroutine.Code, nil)
+	EmitInstructions(subroutine.Code, nil, make(map[*Instruction]*Instruction))
 	emit("mov eax, [esp+%d*4]", subroutine.Ret.Serial)
 	emit("leave")
 	emit("ret")
