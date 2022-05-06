@@ -60,7 +60,7 @@ func DoProgram(t *testing.T, main *Subroutine) {
 	fmt.Printf("%s", out)
 }
 
-func TestMcCarthy(t *testing.T) {
+func TestNestedIfInWhile(t *testing.T) {
 	i0 := &Instruction{Opcode: OpConst, Const: 1}
 	i1 := &Instruction{Opcode: OpConst, Const: 42}
 	i2 := &Instruction{Opcode: OpWhile}

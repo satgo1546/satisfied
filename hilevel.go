@@ -8,7 +8,7 @@ import (
 
 type Node struct {
 	Type           string      `json:"type"`
-	ReferenceLevel int         `json:"refl" nodeTypes:"ref"`
+	ReferenceLevel int         `json:"refl" nodeTypes:"ref break"`
 	ID             int         `json:"refn" nodeTypes:"var ref"`
 	Name           string      `json:"name" nodeTypes:"var builtin"`
 	Description    string      `json:"desc" nodeTypes:"var"`
@@ -19,7 +19,7 @@ type Node struct {
 	Head           *Node       `json:"head" nodeTypes:"call"`
 	Arguments      []*Node     `json:"args" nodeTypes:"call"`
 	LValue         *Node       `json:"lval" nodeTypes:"assign"`
-	RValue         *Node       `json:"rval" nodeTypes:"scope assign return"`
+	RValue         *Node       `json:"rval" nodeTypes:"scope assign break"`
 	Immediate      interface{} `json:"ival" nodeTypes:"literal"`
 }
 
@@ -114,6 +114,9 @@ type defItem struct {
 
 func CompileNode(
 	node *Node,
+	// The hierarchy of the definition stack eventually gets unused in analysis stages.
+	// Scopes in the source are only for programmers, as self-explanatory comments.
+	// A global numbering scheme for variables would have worked the same.
 	definitionStack []map[int]*defItem,
 	beforeAssignment func(l *defItem, r *Instruction),
 ) (head, result *Instruction) {
@@ -126,7 +129,7 @@ func CompileNode(
 		head = &Instruction{Opcode: OpConst, Const: int(node.Immediate.(float64))}
 		result = head
 	case "ref":
-		return nil, definitionStack[len(definitionStack)-1+node.ReferenceLevel][node.ID].currentValue
+		return nil, definitionStack[len(definitionStack)+node.ReferenceLevel][node.ID].currentValue
 	case "builtin":
 		switch node.Name {
 		case "add":
@@ -275,7 +278,7 @@ func CompileNode(
 	case "assign":
 		switch node.LValue.Type {
 		case "ref":
-			l := definitionStack[len(definitionStack)-1+node.LValue.ReferenceLevel][node.LValue.ID]
+			l := definitionStack[len(definitionStack)+node.LValue.ReferenceLevel][node.LValue.ID]
 			head, result = CompileNode(node.RValue, definitionStack, beforeAssignment)
 			// An OpCopy is mandated at each assignment so as to compile while nodes efficiently.
 			result = (&Instruction{Opcode: OpCopy, Arg0: result}).RegisterUses()
@@ -287,6 +290,8 @@ func CompileNode(
 		default:
 			panic("non-lvalue in assignment lhs")
 		}
+	default:
+		panic("unknown node type")
 	}
 	return
 }

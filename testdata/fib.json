@@ -25,7 +25,7 @@
 ,"args":
 [
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 2}
+,"lval":{"type": "ref", "refl": -1, "refn": 2}
 ,"rval":{"type": "literal", "ival": 2}
 }
 ,
@@ -34,7 +34,7 @@
 {"type":"call"
 ,"head":{"type": "builtin", "name": "lt"}
 ,"args":
-[       {"type": "ref", "refl": 0, "refn": 14}
+[       {"type": "ref", "refl": -1, "refn": 14}
 ,       {"type": "literal", "ival": 14}
 ]
 }
@@ -44,36 +44,36 @@
 ,"args":
 [
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 2}
+,"lval":{"type": "ref", "refl": -1, "refn": 2}
 ,"rval":
 {"type":"call"
 ,"head":{"type": "builtin", "name": "add"}
 ,"args":
-[       {"type": "ref", "refl": 0, "refn": 2}
-,       {"type": "ref", "refl": 0, "refn": 1}
+[       {"type": "ref", "refl": -1, "refn": 2}
+,       {"type": "ref", "refl": -1, "refn": 1}
 ]
 }
 }
 ,
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 1}
+,"lval":{"type": "ref", "refl": -1, "refn": 1}
 ,"rval":
 {"type":"call"
 ,"head":{"type": "builtin", "name": "sub"}
 ,"args":
-[       {"type": "ref", "refl": 0, "refn": 2}
-,       {"type": "ref", "refl": 0, "refn": 1}
+[       {"type": "ref", "refl": -1, "refn": 2}
+,       {"type": "ref", "refl": -1, "refn": 1}
 ]
 }
 }
 ,
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 14}
+,"lval":{"type": "ref", "refl": -1, "refn": 14}
 ,"rval":
 {"type":"call"
 ,"head":{"type": "builtin", "name": "add"}
 ,"args":
-[       {"type": "ref", "refl": 0, "refn": 14}
+[       {"type": "ref", "refl": -1, "refn": 14}
 ,       {"type": "literal", "ival": 2}
 ]
 }
@@ -82,7 +82,7 @@
 }
 ,"else":{"type": "literal", "ival": 0}
 }
-,       {"type": "ref", "refl": 0, "refn": 2}
+,       {"type": "ref", "refl": -1, "refn": 2}
 ]
 }
 }

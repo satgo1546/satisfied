@@ -19,37 +19,37 @@
 ,"args":
 [
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 1}
+,"lval":{"type": "ref", "refl": -1, "refn": 1}
 ,"rval":{"type": "literal", "ival": 48}
 }
 ,
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 1}
+,"lval":{"type": "ref", "refl": -1, "refn": 1}
 ,"rval":
 {"type":"call"
 ,"head":{"type": "builtin", "name": "add"}
 ,"args":
 [       {"type": "literal", "ival": 8}
-,       {"type": "ref", "refl": 0, "refn": 1}
+,       {"type": "ref", "refl": -1, "refn": 1}
 ]
 }
 }
 ,
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 2}
-,"rval":{"type": "ref", "refl": 0, "refn": 1}
+,"lval":{"type": "ref", "refl": -1, "refn": 2}
+,"rval":{"type": "ref", "refl": -1, "refn": 1}
 }
 ,
 {"type":"assign"
-,"lval":{"type": "ref", "refl": 0, "refn": 1}
+,"lval":{"type": "ref", "refl": -1, "refn": 1}
 ,"rval":{"type": "literal", "ival": 14}
 }
 ,
 {"type":"call"
 ,"head":{"type": "builtin", "name": "sub"}
 ,"args":
-[       {"type": "ref", "refl": 0, "refn": 2}
-,       {"type": "ref", "refl": 0, "refn": 1}
+[       {"type": "ref", "refl": -1, "refn": 2}
+,       {"type": "ref", "refl": -1, "refn": 1}
 ]
 }
 ]
