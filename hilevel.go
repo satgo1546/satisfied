@@ -12,12 +12,11 @@ type Node struct {
 	ID             int         `json:"refn" nodeTypes:"var ref"`
 	Name           string      `json:"name" nodeTypes:"var builtin"`
 	Description    string      `json:"desc" nodeTypes:"var"`
-	Definitions    []*Node     `json:"defs" nodeTypes:"scope"`
+	Arguments      []*Node     `json:"args" nodeTypes:"scope call"`
 	Condition      *Node       `json:"cond" nodeTypes:"if while"`
 	Then           *Node       `json:"then" nodeTypes:"if while"`
 	Else           *Node       `json:"else" nodeTypes:"if while"`
 	Head           *Node       `json:"head" nodeTypes:"call"`
-	Arguments      []*Node     `json:"args" nodeTypes:"call"`
 	LValue         *Node       `json:"lval" nodeTypes:"assign"`
 	RValue         *Node       `json:"rval" nodeTypes:"scope assign break"`
 	Immediate      interface{} `json:"ival" nodeTypes:"literal"`
@@ -92,7 +91,7 @@ func WriteNode(f io.Writer, node *Node) {
 			WriteField(f, "name", node.Name)
 			WriteField(f, "desc", node.Description)
 		case "scope":
-			WriteField(f, "defs", node.Definitions)
+			WriteField(f, "args", node.Arguments)
 			WriteField(f, "rval", node.RValue)
 		case "if", "while":
 			WriteField(f, "cond", node.Condition)
@@ -104,21 +103,24 @@ func WriteNode(f io.Writer, node *Node) {
 		case "assign":
 			WriteField(f, "lval", node.LValue)
 			WriteField(f, "rval", node.RValue)
-		case "return":
+		case "break":
+			WriteField(f, "refl", node.ReferenceLevel)
 			WriteField(f, "rval", node.RValue)
 		}
 	}
 	fmt.Fprintln(f, "}")
 }
 
+// Retrocycle finds ref nodes and turn numeric references (ReferenceLevel and ID) into pointers (referenceLevel and reference).
+// Other nodes with ReferenceLevel set (e.g., break nodes) are also updated.
 func (node *Node) Retrocycle(definitionStack []*Node) {
 	if node == nil {
 		return
 	}
 	node.definitionMap = nil
 	if node.Type == "scope" {
-		node.definitionMap = make(map[int]*Node, len(node.Definitions))
-		for _, d := range node.Definitions {
+		node.definitionMap = make(map[int]*Node, len(node.Arguments))
+		for _, d := range node.Arguments {
 			if d.ID < 0 {
 				panic("negative refn reserved")
 			}
@@ -128,9 +130,6 @@ func (node *Node) Retrocycle(definitionStack []*Node) {
 			node.definitionMap[d.ID] = d
 		}
 		definitionStack = append(definitionStack, node)
-		for _, d := range node.Definitions {
-			d.Retrocycle(definitionStack)
-		}
 	}
 	node.referenceLevel = nil
 	node.reference = nil
@@ -159,7 +158,8 @@ func (node *Node) Retrocycle(definitionStack []*Node) {
 	}
 }
 
-func (node *Node) Desugar() {
+func (node *Node) DesugarBreak() bool {
+	return false
 }
 
 func (node *Node) Compile(
@@ -187,7 +187,7 @@ func (node *Node) Compile(
 	case "scope":
 		head = &Instruction{Opcode: OpConst, Const: 0}
 		tail := head
-		for _, d := range node.Definitions {
+		for _, d := range node.Arguments {
 			tail.Next = (&Instruction{Opcode: OpCopy, Arg0: head}).RegisterUses()
 			tail = tail.Next
 			d.currentValue = tail
@@ -315,6 +315,8 @@ func (node *Node) Compile(
 				}).RegisterUses()
 				result = tail.Next.Next.Next
 			}
+		} else {
+			panic("not implemented: only builtins can be called for now")
 		}
 		head = head.Next
 	case "assign":
