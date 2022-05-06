@@ -21,6 +21,10 @@ type Node struct {
 	LValue         *Node       `json:"lval" nodeTypes:"assign"`
 	RValue         *Node       `json:"rval" nodeTypes:"scope assign break"`
 	Immediate      interface{} `json:"ival" nodeTypes:"literal"`
+	referenceLevel *Node
+	reference      *Node
+	definitionMap  map[int]*Node
+	currentValue   *Instruction
 }
 
 func IsShortNode(node *Node) bool {
@@ -107,29 +111,74 @@ func WriteNode(f io.Writer, node *Node) {
 	fmt.Fprintln(f, "}")
 }
 
-type defItem struct {
-	node         *Node
-	currentValue *Instruction
+func (node *Node) Retrocycle(definitionStack []*Node) {
+	if node == nil {
+		return
+	}
+	node.definitionMap = nil
+	if node.Type == "scope" {
+		node.definitionMap = make(map[int]*Node, len(node.Definitions))
+		for _, d := range node.Definitions {
+			if d.ID < 0 {
+				panic("negative refn reserved")
+			}
+			if node.definitionMap[d.ID] != nil {
+				panic("repeated refn defined")
+			}
+			node.definitionMap[d.ID] = d
+		}
+		definitionStack = append(definitionStack, node)
+		for _, d := range node.Definitions {
+			d.Retrocycle(definitionStack)
+		}
+	}
+	node.referenceLevel = nil
+	node.reference = nil
+	if node.ReferenceLevel != 0 {
+		// The hierarchy of the definition stack eventually gets unused in analysis stages.
+		// Scopes in the source are meant for programmers. They play the rôle of self-explanatory comments.
+		// Reference numbers are adapted to a global numbering scheme (a.k.a. pointers) here.
+		node.referenceLevel = definitionStack[len(definitionStack)+node.ReferenceLevel]
+		if node.ID != 0 {
+			node.reference = node.referenceLevel.definitionMap[node.ID]
+		}
+		// From now on, the pointer fields are the source of truth.
+		node.ReferenceLevel = 0
+		node.ID = 0
+	}
+	for _, n := range append(
+		node.Arguments,
+		node.Condition,
+		node.Then,
+		node.Else,
+		node.Head,
+		node.LValue,
+		node.RValue,
+	) {
+		n.Retrocycle(definitionStack)
+	}
 }
 
-func CompileNode(
-	node *Node,
-	// The hierarchy of the definition stack eventually gets unused in analysis stages.
-	// Scopes in the source are only for programmers, as self-explanatory comments.
-	// A global numbering scheme for variables would have worked the same.
-	definitionStack []map[int]*defItem,
-	beforeAssignment func(l *defItem, r *Instruction),
-) (head, result *Instruction) {
+func (node *Node) Desugar() {
+}
+
+func (node *Node) Compile(
+	beforeAssignment func(l *Node, r *Instruction),
+) (
+	head *Instruction,
+	result *Instruction,
+) {
 	if node == nil {
 		head = &Instruction{Opcode: OpConst, Const: 0}
-		return head, head
+		result = head
+		return
 	}
 	switch node.Type {
 	case "literal":
 		head = &Instruction{Opcode: OpConst, Const: int(node.Immediate.(float64))}
 		result = head
 	case "ref":
-		return nil, definitionStack[len(definitionStack)+node.ReferenceLevel][node.ID].currentValue
+		result = node.reference.currentValue
 	case "builtin":
 		switch node.Name {
 		case "add":
@@ -138,26 +187,19 @@ func CompileNode(
 	case "scope":
 		head = &Instruction{Opcode: OpConst, Const: 0}
 		tail := head
-		defs := make(map[int]*defItem, len(node.Definitions))
 		for _, d := range node.Definitions {
-			if defs[d.ID] != nil {
-				panic("repeated refn defined")
-			}
 			tail.Next = (&Instruction{Opcode: OpCopy, Arg0: head}).RegisterUses()
 			tail = tail.Next
-			defs[d.ID] = &defItem{
-				node:         d,
-				currentValue: tail,
-			}
+			d.currentValue = tail
 		}
-		tail.Next, result = CompileNode(node.RValue, append(definitionStack, defs), beforeAssignment)
+		tail.Next, result = node.RValue.Compile(beforeAssignment)
 	case "if":
-		head, result = CompileNode(node.Condition, definitionStack, beforeAssignment)
+		head, result = node.Condition.Compile(beforeAssignment)
 		i := (&Instruction{Opcode: OpIfNonzero, Arg0: result}).RegisterUses()
 		head = AppendInstructions(head, i)
 		result = &Instruction{Opcode: OpΦ}
-		φs := make(map[*defItem]*Instruction)
-		i.List0, result.Arg0 = CompileNode(node.Then, definitionStack, func(l *defItem, r *Instruction) {
+		φs := make(map[*Node]*Instruction)
+		i.List0, result.Arg0 = node.Then.Compile(func(l *Node, r *Instruction) {
 			if φs[l] != nil {
 				φs[l].Arg0 = r
 			} else {
@@ -167,7 +209,7 @@ func CompileNode(
 		for d, φ := range φs {
 			d.currentValue = φ.Arg2
 		}
-		i.List1, result.Arg1 = CompileNode(node.Else, definitionStack, func(l *defItem, r *Instruction) {
+		i.List1, result.Arg1 = node.Else.Compile(func(l *Node, r *Instruction) {
 			if φs[l] != nil {
 				φs[l].Arg1 = r
 			} else {
@@ -200,8 +242,8 @@ func CompileNode(
 			Opcode: OpWhile,
 			Arg0:   &Instruction{Opcode: OpIfNonzero},
 		}).RegisterUses()
-		φs := make(map[*defItem]*Instruction)
-		h := func(l *defItem, r *Instruction) {
+		φs := make(map[*Node]*Instruction)
+		h := func(l *Node, r *Instruction) {
 			if φs[l] != nil {
 				φs[l].Arg0 = r
 			} else {
@@ -209,9 +251,9 @@ func CompileNode(
 				l.currentValue.ReplaceUsesWithMinSerial(φs[l], head.Serial)
 			}
 		}
-		head.List0, head.Arg0.Arg0 = CompileNode(node.Condition, definitionStack, h)
+		head.List0, head.Arg0.Arg0 = node.Condition.Compile(h)
 		head.List0 = AppendInstructions(head.List0, head.Arg0.RegisterUses())
-		head.Arg0.List0, _ = CompileNode(node.Then, definitionStack, h)
+		head.Arg0.List0, _ = node.Then.Compile(h)
 		result = &Instruction{Opcode: OpConst, Const: 0}
 		head.Next = result
 		for d, φ := range φs {
@@ -229,7 +271,7 @@ func CompileNode(
 		tail := head
 		args := make([]*Instruction, len(node.Arguments))
 		for i, a := range node.Arguments {
-			tail.Next, args[i] = CompileNode(a, definitionStack, beforeAssignment)
+			tail.Next, args[i] = a.Compile(beforeAssignment)
 			for ; tail.Next != nil; tail = tail.Next {
 			}
 		}
@@ -278,8 +320,8 @@ func CompileNode(
 	case "assign":
 		switch node.LValue.Type {
 		case "ref":
-			l := definitionStack[len(definitionStack)+node.LValue.ReferenceLevel][node.LValue.ID]
-			head, result = CompileNode(node.RValue, definitionStack, beforeAssignment)
+			l := node.LValue.reference
+			head, result = node.RValue.Compile(beforeAssignment)
 			// An OpCopy is mandated at each assignment so as to compile while nodes efficiently.
 			result = (&Instruction{Opcode: OpCopy, Arg0: result}).RegisterUses()
 			head = AppendInstructions(head, result)

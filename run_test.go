@@ -37,7 +37,8 @@ func DoFile(t *testing.T, filename string) {
 		Name: "main",
 		Args: []any{},
 	}
-	main.Code, main.Ret = CompileNode(obj, nil, nil)
+	obj.Retrocycle(nil)
+	main.Code, main.Ret = obj.Compile(nil)
 	fmt.Printf("%s\n", filename)
 	RenumberInstructions(main.Code, 0)
 	PrintInstructions(os.Stdout, main.Code, 1, '.')
