@@ -15,7 +15,43 @@ import (
 // https://marcin-chwedczuk.github.io/a-closer-look-at-portable-executable-msdos-stub
 // http://www.ctyme.com/intr/rb-0088.htm
 // http://www.ctyme.com/intr/rb-0210.htm
-var dos_program = []byte{
+// https://justine.lol/ape.html
+var header = [512]byte{
+	// A executable header like the one in the αcτµαlly pδrταblε εxεcµταblε format.
+	// The boot sector presented here does not try to jump as soon as possible with MZqFpD.
+	// As a result, the DOS MZ loader (at least in DOSBox) is happy with this version.
+	'M', 'Z', // dec bp; pop dx / Mark Zbikowski
+	// At least one lowercase letter is required before the first newline and the first newline must come before the first NUL for shells to recognize the file as a shell script.
+	'f', '=', // cmp eax, 2599 / last page size
+	'\'', '\n', // … / number of pages in file
+	0, 0, // … / number of relocations
+	4, 0, // add al, 0 / size of header in paragraphs
+	0x0d, 0x00, // or ax, 0xff00 / minimum extra paragraphs needed
+	0xff,       // … / maximum extra paragraphs needed
+	0xe8,       // call $+15 / …
+	0x0c, 0x00, // … / initial (relative) SS value
+	0, 0, // initial SP value
+	0, 0, // rarely checked checksum
+	0, 0, // initial IP value
+	0, 0, // initial (relative) CS value
+	0, 0, // file address of relocation table
+	0, 0, // overlay number
+	0xfa,       // cli
+	0x31, 0xc0, // xor ax, ax
+	0x8e, 0xd8, // mov ds, ax
+	0x8e, 0xc0, // mov es, ax
+	0xcd, 0x10, // int 0x10
+	0xb8, 0x00, 0x13, // mov ax, 0x1300
+	0xb9, 0x16, 0x00, // mov cx, 0x0016
+	0xba, 0x09, 0x16, // mov dx, 0x1609
+	0xbb, 0x3b, 0x00, // mov bx, 0x003b
+	0xbd, 0xd2, 0x7c, // mov bp, 0x7cd2
+	0xcd, 0x10, // int 0x10
+	0xb8, 0x00, 0xb8, // mov ax, 0xb800
+	0xfc,       // cld
+	0xeb, 0x72, // jmp $+0x74
+	0x00, 0x02, 0x00, 0x00, // file offset of pe header
+	// The colorful DOS stub program.
 	0x0e,       // push cs
 	0x07,       // pop es
 	0xb4, 0x03, // mov ah, 0x03
@@ -39,6 +75,46 @@ var dos_program = []byte{
 	'S', 0x0a, ' ', 0x0b, 'm', 0x09, 'o', 0x0d,
 	'd', 0x0c, 'e', 0x0e, '.', 0x0a,
 	'\r', 0x0b, '\n', 0x09, '\a', 0x0d,
+	// The boot sector continues here.
+	0x8e, 0xc0, // mov es, ax
+	0xb4, 0x7c, // mov ah, 0x7c
+	0x89, 0xc6, // mov si, ax
+	0xfe, 0xc4, // inc ah
+	0xbf, 238, 0, // mov di, 238
+	0x83, 0xc7, 8, // 1: add di, 8
+	0xb9, 16, 0, // 2: mov cx, 16
+	0xa4,       // 3: movsb
+	0x47,       // inc di
+	0xe2, 0xfc, // loop 3b
+	0x66, 0xaf, // scasd
+	0x96,       // xchg si, ax
+	0x39, 0xc6, // cmp si, ax
+	0x73, 0xf2, // jae 2b
+	0x3d, 0x00, 0x7e, // cmp ax, 0x7e00
+	0x72, 0xea, // jb 1b
+	0xf4,       // hlt
+	0xeb, 0xfd, // jmp $-1
+	' ', 'I', 'n', 'v', 'a', 'l', 'i', 'd',
+	' ', 's', 'y', 's', 't', 'e', 'm',
+	' ', 'd', 'i', 's', 'k', '.', ' ',
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x55, 0xaa,
 }
 
 type PESection struct {
@@ -228,38 +304,11 @@ const SEC_ALIGN = 0x1000
 const FILE_ALIGN = 512
 
 func PEWrite(f *os.File, windows_program []byte) {
-	dos_stub_sz := 64 + int64(len(dos_program))
-	pe_offset := align_to(dos_stub_sz, 8)
+	pe_offset := int64(512)
 
 	// On which fields are (un)used:
 	// http://www.phreedom.org/research/tinype/
-	write8(f, 'M') /* Magic number (2 bytes) */
-	write8(f, 'Z')
-	write16(f, uint16(dos_stub_sz%512))                /* Last page size */
-	write16(f, uint16(align_to(dos_stub_sz, 512)/512)) /* Pages in file */
-	write16(f, 0)                                      /* Relocations */
-	write16(f, 4)                                      /* Size of header in paragraphs */
-	write16(f, 0)                                      /* Minimum extra paragraphs needed */
-	write16(f, 1)                                      /* Maximum extra paragraphs needed */
-	write16(f, 0)                                      /* Initial (relative) SS value */
-	write16(f, 0)                                      /* Initial SP value */
-	write16(f, 0)                                      /* Rarely checked checksum */
-	write16(f, 0)                                      /* Initial IP value */
-	write16(f, 0)                                      /* Initial (relative) CS value */
-	write16(f, 0x40)                                   /* File address of relocation table */
-	write16(f, 0)                                      /* Overlay number */
-	for i := 0; i < 4; i++ {
-		write16(f, 0) /* Reserved (4 words) */
-	}
-	write16(f, 0) /* OEM id */
-	write16(f, 0) /* OEM info */
-	for i := 0; i < 10; i++ {
-		write16(f, 0) /* Reserved (10 words) */
-	}
-	write32(f, uint32(pe_offset)) /* File offset of PE header. */
-
-	// DOS program.
-	f.Write(dos_program)
+	f.Write(header[:])
 
 	idata.Name = ".idata"
 	idata.Characteristics = 0xc0000040 // IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE

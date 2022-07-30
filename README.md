@@ -27,3 +27,11 @@
 > It works! The screenshots below show the executable running on Windows NT 3.51 and Windows 10, versions that were released more than twenty years apart. For some reason, I find this extremely satisfying. (Perhaps in this sense, our executable is a lot more universal than programs using the newfangled Universal Windows Platform model?)
 >
 > — [*Othello for Desktop, Mobile and Web: an AI and GUI Exercise*](https://www.hanshq.net/othello.html)
+
+> One of the reasons why I love working with a lot of these old technologies, is that I want any software work I'm involved in to stand the test of time with minimal toil. Similar to how the Super Mario Bros ROM has managed to survive all these years without needing a GitHub issue tracker.
+>
+> I believe the best chance we have of doing that, is by gluing together the binary interfaces that've already achieved a decades-long consensus, and ignoring the APIs. For example, here are the [magic numbers](https://github.com/jart/cosmopolitan/blob/1.0/libc/sysv/consts.sh) used by Mac, Linux, BSD, and Windows distros. They're worth seeing at least once in your life, since these numbers underpin the internals of nearly all the computers, servers, and phones you've used.
+>
+> If we focus on the subset of numbers all systems share in common, and compare it to their common ancestor, Bell System Five, we can see that few things about systems engineering have changed in the last 40 years at the binary level. Magnums are boring. Platforms can't break them without breaking themselves. Few people have proposed visions over the years on why UNIX numerology needs to change.
+>
+> — [*αcτµαlly pδrταblε εxεcµταblε*](https://justine.lol/ape.html)
