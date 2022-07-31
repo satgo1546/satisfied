@@ -22,6 +22,12 @@
 	<dd>只有一项测试的“单元测试”，用来代替构建脚本。既然“测试一下”指的总是执行那些命令，输出的总是同一个结果，不如就套用上Go内置的测试解决方案吧。</dd>
 	<dt>README.md</dt>
 	<dd>Markdown的表现力不足以表达当前这个定义列表，它是用HTML语法插入的。行内代码不应被过度使用。中西文间不用加空格，（好，好，）<a href="https://chrome.google.com/webstore/detail/%E7%82%BA%E4%BB%80%E9%BA%BC%E4%BD%A0%E5%80%91%E5%B0%B1%E6%98%AF%E4%B8%8D%E8%83%BD%E5%8A%A0%E5%80%8B%E7%A9%BA%E6%A0%BC%E5%91%A2%EF%BC%9F/paphcfdffjnbcgkokihcdjliihicmbpd">那你装浏览器插件啊</a>。</dd>
+	<dt>Shields.io</dt>
+	<dd>
+		<img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/satgo1546/satisfied?color=green&logo=git&style=plastic">
+		<img alt="GitHub top language" src="https://img.shields.io/github/languages/top/satgo1546/satisfied?style=plastic">
+		<img src="https://img.shields.io/badge/platform-windows-lightgrey?logo=windows95&style=plastic">
+	</dd>
 </dl>
 
 > It works! The screenshots below show the executable running on Windows NT 3.51 and Windows 10, versions that were released more than twenty years apart. For some reason, I find this extremely satisfying. (Perhaps in this sense, our executable is a lot more universal than programs using the newfangled Universal Windows Platform model?)
