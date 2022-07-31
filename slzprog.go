@@ -13,14 +13,16 @@ import (
 )
 
 // https://marcin-chwedczuk.github.io/a-closer-look-at-portable-executable-msdos-stub
-// http://www.ctyme.com/intr/rb-0088.htm
-// http://www.ctyme.com/intr/rb-0210.htm
 // https://justine.lol/ape.html
+// General tips for bootloader development: https://stackoverflow.com/a/32705076
 var header = [512]byte{
 	// A executable header like the one in the αcτµαlly pδrταblε εxεcµταblε format.
 	// The boot sector presented here does not try to jump as soon as possible with MZqFpD.
 	// As a result, the DOS MZ loader (at least in DOSBox) is happy with this version.
-	'M', 'Z', // dec bp; pop dx / Mark Zbikowski
+	'M', // dec bp / Mark Zbikowski
+	// In fact, the default stack pointer the BIOS sets may interfere with our code.
+	// It's unavoidable, so we just assume it's safe to use this memory word.
+	'Z', // pop dx / …
 	// At least one lowercase letter is required before the first newline and the first newline must come before the first NUL for shells to recognize the file as a shell script.
 	'f', '=', // cmp eax, 2599 / last page size
 	'\'', '\n', // … / number of pages in file
@@ -36,11 +38,15 @@ var header = [512]byte{
 	0, 0, // initial (relative) CS value
 	0, 0, // file address of relocation table
 	0, 0, // overlay number
-	0xfa,       // cli
+	0xfa, // cli
+	// Int 10/AH=00h set video mode
+	// http://www.ctyme.com/intr/rb-0069.htm
 	0x31, 0xc0, // xor ax, ax
 	0x8e, 0xd8, // mov ds, ax
 	0x8e, 0xc0, // mov es, ax
 	0xcd, 0x10, // int 0x10
+	// Int 10/AH=13h write string
+	// http://www.ctyme.com/intr/rb-0210.htm
 	0xb8, 0x00, 0x13, // mov ax, 0x1300
 	0xb9, 0x16, 0x00, // mov cx, 0x0016
 	0xba, 0x09, 0x16, // mov dx, 0x1609
@@ -52,8 +58,10 @@ var header = [512]byte{
 	0xeb, 0x72, // jmp $+0x74
 	0x00, 0x02, 0x00, 0x00, // file offset of pe header
 	// The colorful DOS stub program.
-	0x0e,       // push cs
-	0x07,       // pop es
+	0x0e, // push cs
+	0x07, // pop es
+	// Int 10/AH=03h get cursor position and size
+	// http://www.ctyme.com/intr/rb-0088.htm
 	0xb4, 0x03, // mov ah, 0x03
 	0xb7, 0x00, // mov bh, 0x00
 	0xcd, 0x10, // int 0x10
